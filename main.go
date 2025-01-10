@@ -3,39 +3,59 @@ package main
 import (
 	"bufio"
 	_ "embed"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
-	"text/template"
 
 	"github.com/urfave/cli/v2"
 )
 
-//go:embed renovate.json5.tmpl
-var tmplData string
+type renovateConfiguration struct {
+	Schema                 string              `json:"$schema"`
+	Extends                []string            `json:"extends"`
+	BaseBranches           []string            `json:"baseBranches"`
+	PostUpdateOptions      []string            `json:"postUpdateOptions"`
+	BranchPrefix           string              `json:"branchPrefix"`
+	PackageRules           []packageRules      `json:"packageRules"`
+	VulnerabilityAlerts    vulnerabilityAlerts `json:"vulnerabilityAlerts"`
+	OsvVulnerabilityAlerts bool                `json:"osvVulnerabilityAlerts"`
+}
 
-type templateContext struct {
-	Replaced []string
+type packageRules struct {
+	Description       string   `json:"description"`
+	MatchBaseBranches []string `json:"matchBaseBranches,omitempty"`
+	PackagePatterns   []string `json:"packagePatterns,omitempty"`
+	MatchPackageNames []string `json:"matchPackageNames,omitempty"`
+	MatchDatasources  []string `json:"matchDatasources,omitempty"`
+	AllowedVersions   string   `json:"allowedVersions,omitempty"`
+	Enabled           bool     `json:"enabled"`
+}
+
+type vulnerabilityAlerts struct {
+	Enabled bool     `json:"enabled"`
+	Labels  []string `json:"labels"`
 }
 
 func main() {
 	app := &cli.App{
 		Name:      "generate-renovate-config",
-		Usage:     "Generate Renovate configuration from a go.mod file",
-		ArgsUsage: "<go.mod> <output>",
+		Usage:     "Generate Renovate configuration for a repository",
+		ArgsUsage: "<repository>",
 		Action: func(cCtx *cli.Context) error {
-			if cCtx.Args().Len() != 2 {
-				return fmt.Errorf("wrong number of arguments")
+			if cCtx.Args().Len() != 1 {
+				return errors.New("wrong number of arguments")
 			}
 
-			goModPath := cCtx.Args().Get(0)
-			outputPath := cCtx.Args().Get(1)
-			replaced, err := getReplaced(goModPath)
+			repoPath := cCtx.Args().Get(0)
+			replaced, err := getReplaced(repoPath)
 			if err != nil {
 				return err
 			}
-			return renderConfig(replaced, outputPath)
+			return renderConfig(replaced, repoPath)
 		},
 	}
 	if err := app.Run(os.Args); err != nil {
@@ -43,12 +63,11 @@ func main() {
 	}
 }
 
-func getReplaced(goModPath string) ([]string, error) {
-	var replaced []string
-
+func getReplaced(repoPath string) ([]string, error) {
+	goModPath := filepath.Join(repoPath, "go.mod")
 	inputf, err := os.Open(goModPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open %q: %s", goModPath, err)
+		return nil, fmt.Errorf("failed to open %q: %w", goModPath, err)
 	}
 	defer func() {
 		_ = inputf.Close()
@@ -58,6 +77,7 @@ func getReplaced(goModPath string) ([]string, error) {
 	scanner := bufio.NewScanner(inputf)
 	inReplaceBlock := false
 
+	var replaced []string
 	// Iterate over each line in the file
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -75,7 +95,6 @@ func getReplaced(goModPath string) ([]string, error) {
 					return nil, fmt.Errorf("invalid replace directive format: %q", line)
 				}
 				replaced = append(replaced, parts[3])
-
 			}
 
 			continue
@@ -98,33 +117,95 @@ func getReplaced(goModPath string) ([]string, error) {
 
 	// Check for errors from the scanner
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read %q: %s\n", goModPath, err)
+		return nil, fmt.Errorf("failed to read %q: %w", goModPath, err)
 	}
 
 	return replaced, nil
 }
 
-func renderConfig(replaced []string, outputPath string) error {
-	tmpl, err := template.New("renovate.json5.tmpl").Parse(tmplData)
-	if err != nil {
-		return fmt.Errorf("failed to parse template: %s", err)
+func renderConfig(replaced []string, repoPath string) error {
+	gitHubDir := filepath.Join(repoPath, ".github")
+	if err := os.MkdirAll(gitHubDir, 0o644); err != nil {
+		return fmt.Errorf("failed to create %q: %w", gitHubDir, err)
 	}
 
+	// TODO: Let user specify.
+	rlsBranches := []string{"gem-release-2.15", "gem-release-2.14"}
+	cfg := renovateConfiguration{
+		Schema:  "https://docs.renovatebot.com/renovate-schema.json",
+		Extends: []string{"config:base"},
+		// TODO: Detect.
+		BaseBranches: append([]string{"master"}, rlsBranches...),
+		PostUpdateOptions: []string{
+			"gomodTidy",
+			"gomodUpdateImportPaths",
+		},
+		BranchPrefix: "deps-update/",
+		PackageRules: []packageRules{
+			{
+				Description:       "Disable non-security updates for release branches",
+				MatchBaseBranches: rlsBranches,
+				PackagePatterns:   []string{"*"},
+				Enabled:           false,
+			},
+			{
+				Description:       "Disable updating of replaced dependencies",
+				MatchPackageNames: replaced,
+				Enabled:           false,
+			},
+			// Pin Go at the current version, since we want to upgrade it manually.
+			// Remember to keep this in sync when upgrading our Go version!
+			{
+				Description:       "Pin Go at the current version for the default branch",
+				MatchDatasources:  []string{"docker", "golang-version"},
+				MatchPackageNames: []string{"go", "golang"},
+				// TODO: Don't hard code.
+				AllowedVersions: "<=1.23.2",
+			},
+			{
+				Description:       fmt.Sprintf("Pin Go at the current version for branch %s", rlsBranches[0]),
+				MatchBaseBranches: []string{rlsBranches[0]},
+				MatchDatasources:  []string{"docker", "golang-version"},
+				MatchPackageNames: []string{"go", "golang"},
+				// TODO: Don't hard code.
+				AllowedVersions: "<=1.23.2",
+			},
+			{
+				Description:       fmt.Sprintf("Pin Go at the current version for branch %s", rlsBranches[1]),
+				MatchBaseBranches: []string{rlsBranches[1]},
+				MatchDatasources:  []string{"docker", "golang-version"},
+				MatchPackageNames: []string{"go", "golang"},
+				// TODO: Don't hard code.
+				AllowedVersions: "<=1.22.10",
+			},
+		},
+		VulnerabilityAlerts: vulnerabilityAlerts{
+			Enabled: true,
+			Labels:  []string{"security-update"},
+		},
+		OsvVulnerabilityAlerts: true,
+	}
+
+	outputPath := filepath.Join(gitHubDir, "renovate.json")
+	return writeJSON(cfg, outputPath)
+}
+
+func writeJSON(cfg renovateConfiguration, outputPath string) (err error) {
 	outf, err := os.Create(outputPath)
 	if err != nil {
-		return fmt.Errorf("failed to create %s: %s", outputPath, err)
+		return fmt.Errorf("failed to create %q: %w", outputPath, err)
 	}
+	defer func() {
+		if fErr := outf.Close(); fErr != nil && err == nil {
+			err = fmt.Errorf("failed to write %q: %w", outputPath, err)
+		}
+	}()
 
-	data := templateContext{
-		Replaced: replaced,
-	}
-	if err := tmpl.Execute(outf, data); err != nil {
-		_ = outf.Close()
-		return fmt.Errorf("failed to execute template: %s", err)
-	}
-
-	if err := outf.Close(); err != nil {
-		return fmt.Errorf("failed to write to %s: %s", outputPath, err)
+	enc := json.NewEncoder(outf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(cfg); err != nil {
+		return fmt.Errorf("failed to generate JSON: %w", err)
 	}
 	return nil
 }
