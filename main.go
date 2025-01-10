@@ -55,7 +55,10 @@ func main() {
 				return errors.New("wrong number of arguments")
 			}
 
-			repoPath := cCtx.Args().Get(0)
+			repoPath, err := filepath.Abs(cCtx.Args().Get(0))
+			if err != nil {
+				return fmt.Errorf("failed to get absolute repo path: %w", err)
+			}
 			var allReplaced [][]string
 			for _, b := range append([]string{mainBranch}, rlsBranches...) {
 				replaced, err := getReplaced(repoPath, b)
@@ -86,9 +89,16 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 
 	cmd = exec.Command("git", "switch", branch)
 	cmd.Dir = repoPath
+	b.Reset()
 	cmd.Stderr = &b
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to execute git switch %s: %s", branch, b.String())
+		errMsg := b.String()
+		b.Reset()
+		cmd = exec.Command("git", "branch")
+		cmd.Stdout = &b
+		_ = cmd.Run()
+		fmt.Printf("Branches: %s\n", b.String())
+		return nil, fmt.Errorf("failed to execute 'git switch %s' in %q: %s", branch, cmd.Dir, errMsg)
 	}
 	defer func() {
 		cmd := exec.Command("git", "switch", origBranch)
