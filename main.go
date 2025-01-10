@@ -105,6 +105,7 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 		origCommit = strings.TrimSpace(b.String())
 	}
 
+	// Make sure the branch is available locally, in case we're under CI.
 	cmd = exec.Command("git", "fetch", "origin", branch)
 	cmd.Dir = repoPath
 	b.Reset()
