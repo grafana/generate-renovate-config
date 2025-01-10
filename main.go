@@ -105,8 +105,15 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 		origCommit = strings.TrimSpace(b.String())
 	}
 
-	// Switch to the origin branch, in case it doesn't exist locally (hint: CI).
-	cmd = exec.Command("git", "switch", "--detach", "origin/"+branch)
+	cmd = exec.Command("git", "fetch", "origin", branch)
+	cmd.Dir = repoPath
+	b.Reset()
+	cmd.Stdout = &b
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to execute 'git fetch %s': %w", branch, err)
+	}
+
+	cmd = exec.Command("git", "switch", branch)
 	cmd.Dir = repoPath
 	b.Reset()
 	cmd.Stderr = &b
