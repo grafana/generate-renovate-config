@@ -59,6 +59,10 @@ func main() {
 			if err != nil {
 				return fmt.Errorf("failed to get absolute repo path: %w", err)
 			}
+			if repoPath == "" {
+				return fmt.Errorf("empty repo path %q", cCtx.Args().Get(0))
+			}
+
 			var allReplaced [][]string
 			for _, b := range append([]string{mainBranch}, rlsBranches...) {
 				replaced, err := getReplaced(repoPath, b)
@@ -95,10 +99,11 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 		errMsg := b.String()
 		b.Reset()
 		cmd = exec.Command("git", "branch")
+		cmd.Dir = repoPath
 		cmd.Stdout = &b
 		_ = cmd.Run()
-		fmt.Printf("Branches: %s\n", b.String())
-		return nil, fmt.Errorf("failed to execute 'git switch %s' in %q: %s", branch, cmd.Dir, errMsg)
+		fmt.Printf("Current branches: %q, origBranch: %q\n", b.String(), origBranch)
+		return nil, fmt.Errorf("failed to execute 'git switch %s' in %q: %s", branch, repoPath, errMsg)
 	}
 	defer func() {
 		cmd := exec.Command("git", "switch", origBranch)
