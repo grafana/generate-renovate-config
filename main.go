@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -41,6 +42,10 @@ type vulnerabilityAlerts struct {
 }
 
 func main() {
+	// TODO: Detect.
+	mainBranch := "master"
+	// TODO: Let user specify.
+	rlsBranches := []string{"gem-release-2.15", "gem-release-2.14"}
 	app := &cli.App{
 		Name:      "generate-renovate-config",
 		Usage:     "Generate Renovate configuration for a repository",
@@ -51,11 +56,16 @@ func main() {
 			}
 
 			repoPath := cCtx.Args().Get(0)
-			replaced, err := getReplaced(repoPath)
-			if err != nil {
-				return err
+			var allReplaced [][]string
+			for _, b := range append([]string{mainBranch}, rlsBranches...) {
+				replaced, err := getReplaced(repoPath, b)
+				if err != nil {
+					return err
+				}
+				allReplaced = append(allReplaced, replaced)
 			}
-			return renderConfig(replaced, repoPath)
+
+			return renderConfig(allReplaced, repoPath, mainBranch, rlsBranches)
 		},
 	}
 	if err := app.Run(os.Args); err != nil {
@@ -63,7 +73,28 @@ func main() {
 	}
 }
 
-func getReplaced(repoPath string) ([]string, error) {
+func getReplaced(repoPath, branch string) ([]string, error) {
+	// Switch repo to branch before analyzing go.mod.
+	cmd := exec.Command("git", "branch", "--show-current")
+	cmd.Dir = repoPath
+	var b strings.Builder
+	cmd.Stdout = &b
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to execute git branch: %w", err)
+	}
+	origBranch := strings.TrimSpace(b.String())
+
+	cmd = exec.Command("git", "switch", branch)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to execute git switch %s: %w", branch, err)
+	}
+	defer func() {
+		cmd := exec.Command("git", "switch", origBranch)
+		cmd.Dir = repoPath
+		_ = cmd.Run()
+	}()
+
 	goModPath := filepath.Join(repoPath, "go.mod")
 	inputf, err := os.Open(goModPath)
 	if err != nil {
@@ -123,19 +154,16 @@ func getReplaced(repoPath string) ([]string, error) {
 	return replaced, nil
 }
 
-func renderConfig(replaced []string, repoPath string) error {
+func renderConfig(replaced [][]string, repoPath, mainBranch string, rlsBranches []string) error {
 	gitHubDir := filepath.Join(repoPath, ".github")
 	if err := os.MkdirAll(gitHubDir, 0o644); err != nil {
 		return fmt.Errorf("failed to create %q: %w", gitHubDir, err)
 	}
 
-	// TODO: Let user specify.
-	rlsBranches := []string{"gem-release-2.15", "gem-release-2.14"}
 	cfg := renovateConfiguration{
-		Schema:  "https://docs.renovatebot.com/renovate-schema.json",
-		Extends: []string{"config:base"},
-		// TODO: Detect.
-		BaseBranches: append([]string{"master"}, rlsBranches...),
+		Schema:       "https://docs.renovatebot.com/renovate-schema.json",
+		Extends:      []string{"config:base"},
+		BaseBranches: append([]string{mainBranch}, rlsBranches...),
 		PostUpdateOptions: []string{
 			"gomodTidy",
 			"gomodUpdateImportPaths",
@@ -149,8 +177,20 @@ func renderConfig(replaced []string, repoPath string) error {
 				Enabled:           false,
 			},
 			{
-				Description:       "Disable updating of replaced dependencies",
-				MatchPackageNames: replaced,
+				Description:       "Disable updating of replaced dependencies for default branch",
+				MatchPackageNames: replaced[0],
+				Enabled:           false,
+			},
+			{
+				Description:       fmt.Sprintf("Disable updating of replaced dependencies for branch %s", rlsBranches[0]),
+				MatchBaseBranches: []string{rlsBranches[0]},
+				MatchPackageNames: replaced[1],
+				Enabled:           false,
+			},
+			{
+				Description:       fmt.Sprintf("Disable updating of replaced dependencies for branch %s", rlsBranches[1]),
+				MatchBaseBranches: []string{rlsBranches[1]},
+				MatchPackageNames: replaced[2],
 				Enabled:           false,
 			},
 			// Pin Go at the current version, since we want to upgrade it manually.
