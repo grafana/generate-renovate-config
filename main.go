@@ -82,14 +82,28 @@ func main() {
 
 func getReplaced(repoPath, branch string) ([]string, error) {
 	// Switch repo to branch before analyzing go.mod.
+
 	cmd := exec.Command("git", "branch", "--show-current")
 	cmd.Dir = repoPath
 	var b strings.Builder
 	cmd.Stdout = &b
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to execute git branch: %w", err)
+		return nil, fmt.Errorf("failed to execute 'git branch --show-current': %w", err)
 	}
 	origBranch := strings.TrimSpace(b.String())
+
+	var origCommit string
+	if origBranch == "" {
+		// We're not on a branch, stick with the commit.
+		cmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+		cmd.Dir = repoPath
+		b.Reset()
+		cmd.Stdout = &b
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to execute 'git rev-parse --short HEAD': %w", err)
+		}
+		origCommit = strings.TrimSpace(b.String())
+	}
 
 	cmd = exec.Command("git", "switch", branch)
 	cmd.Dir = repoPath
@@ -102,11 +116,15 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 		cmd.Dir = repoPath
 		cmd.Stdout = &b
 		_ = cmd.Run()
-		fmt.Printf("Current branches: %q, origBranch: %q\n", b.String(), origBranch)
+		fmt.Printf("Current branches: %q, origBranch: %q, origCommit: %q\n", b.String(), origBranch, origCommit)
 		return nil, fmt.Errorf("failed to execute 'git switch %s' in %q: %s", branch, repoPath, errMsg)
 	}
 	defer func() {
-		cmd := exec.Command("git", "switch", origBranch)
+		if origBranch != "" {
+			cmd = exec.Command("git", "switch", origBranch)
+		} else {
+			cmd = exec.Command("git", "checkout", origCommit)
+		}
 		cmd.Dir = repoPath
 		_ = cmd.Run()
 	}()
