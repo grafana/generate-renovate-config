@@ -86,8 +86,9 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 
 	cmd = exec.Command("git", "switch", branch)
 	cmd.Dir = repoPath
+	cmd.Stderr = &b
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to execute git switch %s: %w", branch, err)
+		return nil, fmt.Errorf("failed to execute git switch %s: %s", branch, b.String())
 	}
 	defer func() {
 		cmd := exec.Command("git", "switch", origBranch)
