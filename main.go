@@ -10,7 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/urfave/cli/v2"
 )
@@ -45,7 +49,7 @@ func main() {
 	// TODO: Detect.
 	mainBranch := "master"
 	// TODO: Let user specify.
-	rlsBranches := []string{"gem-release-2.15", "gem-release-2.14"}
+	rlsBranchPre := "gem-release-"
 	app := &cli.App{
 		Name:      "generate-renovate-config",
 		Usage:     "Generate Renovate configuration for a repository",
@@ -63,6 +67,11 @@ func main() {
 				return fmt.Errorf("empty repo path %q", cCtx.Args().Get(0))
 			}
 
+			rlsBranches, err := deduceBranches(repoPath, mainBranch, rlsBranchPre)
+			if err != nil {
+				return err
+			}
+
 			var allReplaced [][]string
 			for _, b := range append([]string{mainBranch}, rlsBranches...) {
 				replaced, err := getReplaced(repoPath, b)
@@ -78,6 +87,134 @@ func main() {
 	if err := app.Run(os.Args); err != nil {
 		bail(err)
 	}
+}
+
+// deduceBranches fetches mainBranch and branches matching rlsBranchPre from origin.
+// The relevant release branches are returned.
+func deduceBranches(repoPath, mainBranch, rlsBranchPre string) ([]string, error) {
+	// Make sure the branches are available locally, in case we're under CI.
+	refSpec := fmt.Sprintf("refs/heads/%s*:refs/remotes/origin/%s*", rlsBranchPre, rlsBranchPre)
+	var b strings.Builder
+	cmd := exec.Command("git", "fetch", "origin", mainBranch, refSpec)
+	cmd.Dir = repoPath
+	cmd.Stderr = &b
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to execute 'git fetch origin %s %s': %s", mainBranch, refSpec, b.String())
+	}
+
+	cmd = exec.Command("git", "branch", "-r")
+	cmd.Dir = repoPath
+	b.Reset()
+	cmd.Stdout = &b
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to execute 'git branch -r': %w", err)
+	}
+
+	// Find all releases, sorted.
+	// Take the two last minor releases. Iff the previous major is not too old, take also its latest minor.
+	reRlsBranch := regexp.MustCompile(fmt.Sprintf(`^origin/%s(\d+)\.(\d+)$`, regexp.QuoteMeta(rlsBranchPre)))
+	lines := strings.Split(b.String(), "\n")
+	var versions []version
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		ms := reRlsBranch.FindStringSubmatch(l)
+		if len(ms) == 0 {
+			continue
+		}
+
+		major, err := strconv.Atoi(ms[1])
+		if err != nil {
+			panic(fmt.Errorf("major component should be an integer: %w", err))
+		}
+		minor, err := strconv.Atoi(ms[2])
+		if err != nil {
+			panic(fmt.Errorf("minor component should be an integer: %w", err))
+		}
+		branch := strings.TrimPrefix(l, "origin/")
+		versions = append(versions, version{major: major, minor: minor, branch: branch})
+	}
+	// Sort in descending order.
+	slices.SortFunc(versions, func(a, b version) int {
+		if a.major < b.major {
+			return 1
+		}
+		if a.minor > b.minor {
+			return -1
+		}
+
+		// Major is the same.
+		if a.minor < b.minor {
+			return 1
+		}
+		if a.minor > b.minor {
+			return -1
+		}
+
+		// They are equal.
+		return 0
+	})
+	if len(versions) == 0 {
+		return nil, fmt.Errorf("no release branches could be found")
+	}
+
+	rlsBranches := []string{versions[0].branch}
+	if len(versions) > 1 {
+		rlsBranches = append(rlsBranches, versions[1].branch)
+	}
+
+	currentMajor := versions[0].major
+	prevMajor := -1
+	var prevMajorVer version
+	for _, v := range versions {
+		if v.major < currentMajor {
+			prevMajor = v.major
+			prevMajorVer = v
+			break
+		}
+	}
+	if prevMajor < 0 {
+		return rlsBranches, nil
+	}
+
+	// Determine whether previous major is within maintenance window (<= 1 year old),
+	// by finding the last tagged release
+	cmd = exec.Command("git", "describe", "--tags", "--abbrev=0", "origin/"+prevMajorVer.branch)
+	cmd.Dir = repoPath
+	b.Reset()
+	cmd.Stdout = &b
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to execute 'git describe --tags --abbrev=0 origin/%s': %w", prevMajorVer.branch, err)
+	}
+
+	tag := strings.TrimSpace(b.String())
+	cmd = exec.Command("git", "log", "-1", "--format=%cd", "--date=unix", tag)
+	cmd.Dir = repoPath
+	b.Reset()
+	cmd.Stdout = &b
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to execute 'git log': %w", err)
+	}
+
+	date := strings.TrimSpace(b.String())
+	secondsSinceEpoch, err := strconv.ParseInt(date, 10, 64)
+	if err != nil {
+		panic(fmt.Errorf("unexpected Git output: %w", err))
+	}
+	createdAt := time.Unix(secondsSinceEpoch, 0)
+	age := time.Since(createdAt)
+	// Avg. days in a year: 365.25.
+	if age.Seconds() <= (365.25 * 24 * 60 * 60) {
+		// OK, this major is still supported.
+		rlsBranches = append(rlsBranches, prevMajorVer.branch)
+	}
+
+	return rlsBranches, nil
+}
+
+type version struct {
+	major  int
+	minor  int
+	branch string
 }
 
 func getReplaced(repoPath, branch string) ([]string, error) {
@@ -103,15 +240,6 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 			return nil, fmt.Errorf("failed to execute 'git rev-parse --short HEAD': %w", err)
 		}
 		origCommit = strings.TrimSpace(b.String())
-	}
-
-	// Make sure the branch is available locally, in case we're under CI.
-	cmd = exec.Command("git", "fetch", "origin", branch)
-	cmd.Dir = repoPath
-	b.Reset()
-	cmd.Stdout = &b
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to execute 'git fetch %s': %w", branch, err)
 	}
 
 	cmd = exec.Command("git", "switch", branch)
