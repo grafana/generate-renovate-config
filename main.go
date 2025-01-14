@@ -387,6 +387,7 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties) e
 		},
 		{
 			Description:       "Disable updating of replaced dependencies for default branch",
+			MatchBaseBranches: []string{mainBranch},
 			MatchPackageNames: branchProps[0].replaced,
 			Enabled:           false,
 		},
