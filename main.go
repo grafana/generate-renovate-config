@@ -331,7 +331,10 @@ func getBranchProperties(repoPath, branch string) (branchProperties, error) {
 	return branchProps, err
 }
 
-var reGoVersion = regexp.MustCompile(`^FROM golang:(\d+\.\d+\.\d+)(?:[^0-9].*)`)
+var (
+	reGoVersion = regexp.MustCompile(`^FROM golang:(\d+\.\d+\.\d+)(?:[^0-9].*)`)
+	reVersion   = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)$`)
+)
 
 func deduceGoVersion() (string, error) {
 	// TODO: Don't hard code.
@@ -397,6 +400,9 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties) e
 	}
 
 	for _, p := range branchProps[1:] {
+		ms := reVersion.FindStringSubmatch(p.goVersion)
+		major := ms[1]
+		minor := ms[2]
 		pkgRules = append(pkgRules,
 			packageRules{
 				Description:       fmt.Sprintf("Disable updating of replaced dependencies for branch %s", p.name),
@@ -404,14 +410,13 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties) e
 				MatchPackageNames: p.replaced,
 				Enabled:           false,
 			},
-			// Pin Go at the current version, since we want to upgrade it manually.
+			// Pin Go at the current major.minor version, since we only want to upgrade the patch version (for security fixes).
 			packageRules{
 				Description:       fmt.Sprintf("Pin Go at the current version for branch %s", p.name),
 				MatchBaseBranches: []string{p.name},
 				MatchDatasources:  []string{"docker", "golang-version"},
 				MatchPackageNames: []string{"go", "golang"},
-				// TODO: Don't hard code.
-				AllowedVersions: p.goVersion,
+				AllowedVersions:   fmt.Sprintf("<=%s.%s", major, minor),
 			},
 		)
 	}
