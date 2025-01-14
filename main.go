@@ -72,16 +72,16 @@ func main() {
 				return err
 			}
 
-			var allReplaced [][]string
+			var branchProps []branchProperties
 			for _, b := range append([]string{mainBranch}, rlsBranches...) {
-				replaced, err := getReplaced(repoPath, b)
+				props, err := getBranchProperties(repoPath, b)
 				if err != nil {
 					return err
 				}
-				allReplaced = append(allReplaced, replaced)
+				branchProps = append(branchProps, props)
 			}
 
-			return renderConfig(allReplaced, repoPath, mainBranch, rlsBranches)
+			return renderConfig(repoPath, mainBranch, branchProps)
 		},
 	}
 	if err := app.Run(os.Args); err != nil {
@@ -217,15 +217,24 @@ type version struct {
 	branch string
 }
 
-func getReplaced(repoPath, branch string) ([]string, error) {
+type branchProperties struct {
+	name      string
+	replaced  []string
+	goVersion string
+}
+
+// getBranchProperties returns properties per branch.
+func getBranchProperties(repoPath, branch string) (branchProperties, error) {
 	// Switch repo to branch before analyzing go.mod.
+
+	branchProps := branchProperties{name: branch}
 
 	cmd := exec.Command("git", "branch", "--show-current")
 	cmd.Dir = repoPath
 	var b strings.Builder
 	cmd.Stdout = &b
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to execute 'git branch --show-current': %w", err)
+		return branchProps, fmt.Errorf("failed to execute 'git branch --show-current': %w", err)
 	}
 	origBranch := strings.TrimSpace(b.String())
 
@@ -237,7 +246,7 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 		b.Reset()
 		cmd.Stdout = &b
 		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to execute 'git rev-parse --short HEAD': %w", err)
+			return branchProps, fmt.Errorf("failed to execute 'git rev-parse --short HEAD': %w", err)
 		}
 		origCommit = strings.TrimSpace(b.String())
 	}
@@ -251,7 +260,7 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 		cmd = exec.Command("git", "branch")
 		cmd.Dir = repoPath
 		_ = cmd.Run()
-		return nil, fmt.Errorf("failed to execute 'git switch %s' in %q: %s", branch, repoPath, errMsg)
+		return branchProps, fmt.Errorf("failed to execute 'git switch %s' in %q: %s", branch, repoPath, errMsg)
 	}
 	defer func() {
 		if origBranch != "" {
@@ -266,7 +275,7 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 	goModPath := filepath.Join(repoPath, "go.mod")
 	inputf, err := os.Open(goModPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open %q: %w", goModPath, err)
+		return branchProps, fmt.Errorf("failed to open %q: %w", goModPath, err)
 	}
 	defer func() {
 		_ = inputf.Close()
@@ -276,7 +285,6 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 	scanner := bufio.NewScanner(inputf)
 	inReplaceBlock := false
 
-	var replaced []string
 	// Iterate over each line in the file
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -291,9 +299,9 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 				// A single-line replace directive.
 				parts := strings.Fields(line)
 				if len(parts) < 5 {
-					return nil, fmt.Errorf("invalid replace directive format: %q", line)
+					return branchProps, fmt.Errorf("invalid replace directive format: %q", line)
 				}
-				replaced = append(replaced, parts[3])
+				branchProps.replaced = append(branchProps.replaced, parts[3])
 			}
 
 			continue
@@ -309,25 +317,104 @@ func getReplaced(repoPath, branch string) ([]string, error) {
 		// Split the line into parts
 		parts := strings.Fields(line)
 		if len(parts) < 4 {
-			return nil, fmt.Errorf("invalid replace directive format: %q", line)
+			return branchProps, fmt.Errorf("invalid replace directive format: %q", line)
 		}
-		replaced = append(replaced, parts[2])
+		branchProps.replaced = append(branchProps.replaced, parts[2])
 	}
 
 	// Check for errors from the scanner
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read %q: %w", goModPath, err)
+		return branchProps, fmt.Errorf("failed to read %q: %w", goModPath, err)
 	}
 
-	return replaced, nil
+	branchProps.goVersion, err = deduceGoVersion()
+	return branchProps, err
 }
 
-func renderConfig(replaced [][]string, repoPath, mainBranch string, rlsBranches []string) error {
+var reGoVersion = regexp.MustCompile(`^FROM golang:(\d+\.\d+\.\d+)(?:[^0-9].*)`)
+
+func deduceGoVersion() (string, error) {
+	// TODO: Don't hard code.
+	fpath := filepath.Join("build-image", "Dockerfile")
+	file, err := os.Open(fpath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open file %q: %w", fpath, err)
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	scanner := bufio.NewScanner(file)
+	var goVersion string
+	for scanner.Scan() {
+		l := scanner.Text()
+		ms := reGoVersion.FindStringSubmatch(l)
+		if len(ms) == 0 {
+			continue
+		}
+		goVersion = ms[1]
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("failed to read file %q: %w", fpath, err)
+	}
+
+	if goVersion == "" {
+		return "", fmt.Errorf("failed to determine Go version within %q", fpath)
+	}
+	return goVersion, nil
+}
+
+func renderConfig(repoPath, mainBranch string, branchProps []branchProperties) error {
 	gitHubDir := filepath.Join(repoPath, ".github")
 	if err := os.MkdirAll(gitHubDir, 0o644); err != nil {
 		return fmt.Errorf("failed to create %q: %w", gitHubDir, err)
 	}
 
+	var rlsBranches []string
+	for _, p := range branchProps[1:] {
+		rlsBranches = append(rlsBranches, p.name)
+	}
+
+	pkgRules := []packageRules{
+		{
+			Description:       "Disable non-security updates for release branches",
+			MatchBaseBranches: rlsBranches,
+			MatchPackageNames: []string{"*"},
+			Enabled:           false,
+		},
+		{
+			Description:       "Disable updating of replaced dependencies for default branch",
+			MatchPackageNames: branchProps[0].replaced,
+			Enabled:           false,
+		},
+		// Pin Go at the current version, since we want to upgrade it manually.
+		{
+			Description:       "Pin Go at the current version for the default branch",
+			MatchDatasources:  []string{"docker", "golang-version"},
+			MatchPackageNames: []string{"go", "golang"},
+			AllowedVersions:   branchProps[0].goVersion,
+		},
+	}
+
+	for _, p := range branchProps[1:] {
+		pkgRules = append(pkgRules,
+			packageRules{
+				Description:       fmt.Sprintf("Disable updating of replaced dependencies for branch %s", p.name),
+				MatchBaseBranches: []string{p.name},
+				MatchPackageNames: p.replaced,
+				Enabled:           false,
+			},
+			// Pin Go at the current version, since we want to upgrade it manually.
+			packageRules{
+				Description:       fmt.Sprintf("Pin Go at the current version for branch %s", p.name),
+				MatchBaseBranches: []string{p.name},
+				MatchDatasources:  []string{"docker", "golang-version"},
+				MatchPackageNames: []string{"go", "golang"},
+				// TODO: Don't hard code.
+				AllowedVersions: p.goVersion,
+			},
+		)
+	}
 	cfg := renovateConfiguration{
 		Schema:       "https://docs.renovatebot.com/renovate-schema.json",
 		Extends:      []string{"config:recommended"},
@@ -337,56 +424,7 @@ func renderConfig(replaced [][]string, repoPath, mainBranch string, rlsBranches 
 			"gomodUpdateImportPaths",
 		},
 		BranchPrefix: "deps-update/",
-		PackageRules: []packageRules{
-			{
-				Description:       "Disable non-security updates for release branches",
-				MatchBaseBranches: rlsBranches,
-				MatchPackageNames: []string{"*"},
-				Enabled:           false,
-			},
-			{
-				Description:       "Disable updating of replaced dependencies for default branch",
-				MatchPackageNames: replaced[0],
-				Enabled:           false,
-			},
-			{
-				Description:       fmt.Sprintf("Disable updating of replaced dependencies for branch %s", rlsBranches[0]),
-				MatchBaseBranches: []string{rlsBranches[0]},
-				MatchPackageNames: replaced[1],
-				Enabled:           false,
-			},
-			{
-				Description:       fmt.Sprintf("Disable updating of replaced dependencies for branch %s", rlsBranches[1]),
-				MatchBaseBranches: []string{rlsBranches[1]},
-				MatchPackageNames: replaced[2],
-				Enabled:           false,
-			},
-			// Pin Go at the current version, since we want to upgrade it manually.
-			// Remember to keep this in sync when upgrading our Go version!
-			{
-				Description:       "Pin Go at the current version for the default branch",
-				MatchDatasources:  []string{"docker", "golang-version"},
-				MatchPackageNames: []string{"go", "golang"},
-				// TODO: Don't hard code.
-				AllowedVersions: "<=1.23.2",
-			},
-			{
-				Description:       fmt.Sprintf("Pin Go at the current version for branch %s", rlsBranches[0]),
-				MatchBaseBranches: []string{rlsBranches[0]},
-				MatchDatasources:  []string{"docker", "golang-version"},
-				MatchPackageNames: []string{"go", "golang"},
-				// TODO: Don't hard code.
-				AllowedVersions: "<=1.23.2",
-			},
-			{
-				Description:       fmt.Sprintf("Pin Go at the current version for branch %s", rlsBranches[1]),
-				MatchBaseBranches: []string{rlsBranches[1]},
-				MatchDatasources:  []string{"docker", "golang-version"},
-				MatchPackageNames: []string{"go", "golang"},
-				// TODO: Don't hard code.
-				AllowedVersions: "<=1.22.10",
-			},
-		},
+		PackageRules: pkgRules,
 		VulnerabilityAlerts: vulnerabilityAlerts{
 			Enabled: true,
 			Labels:  []string{"security-update"},
