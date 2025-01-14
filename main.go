@@ -33,7 +33,6 @@ type renovateConfiguration struct {
 type packageRules struct {
 	Description       string   `json:"description"`
 	MatchBaseBranches []string `json:"matchBaseBranches,omitempty"`
-	PackagePatterns   []string `json:"packagePatterns,omitempty"`
 	MatchPackageNames []string `json:"matchPackageNames,omitempty"`
 	MatchDatasources  []string `json:"matchDatasources,omitempty"`
 	AllowedVersions   string   `json:"allowedVersions,omitempty"`
@@ -330,7 +329,7 @@ func renderConfig(replaced [][]string, repoPath, mainBranch string, rlsBranches 
 
 	cfg := renovateConfiguration{
 		Schema:       "https://docs.renovatebot.com/renovate-schema.json",
-		Extends:      []string{"config:base"},
+		Extends:      []string{"config:recommended"},
 		BaseBranches: append([]string{mainBranch}, rlsBranches...),
 		PostUpdateOptions: []string{
 			"gomodTidy",
@@ -341,7 +340,7 @@ func renderConfig(replaced [][]string, repoPath, mainBranch string, rlsBranches 
 			{
 				Description:       "Disable non-security updates for release branches",
 				MatchBaseBranches: rlsBranches,
-				PackagePatterns:   []string{"*"},
+				MatchPackageNames: []string{"*"},
 				Enabled:           false,
 			},
 			{
