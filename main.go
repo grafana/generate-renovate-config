@@ -28,6 +28,7 @@ type renovateConfiguration struct {
 	PackageRules           []packageRules      `json:"packageRules"`
 	VulnerabilityAlerts    vulnerabilityAlerts `json:"vulnerabilityAlerts"`
 	OsvVulnerabilityAlerts bool                `json:"osvVulnerabilityAlerts"`
+	DependencyDashboard    bool                `json:"dependencyDashboard"`
 }
 
 type packageRules struct {
@@ -391,6 +392,7 @@ func renderConfig(replaced [][]string, repoPath, mainBranch string, rlsBranches 
 			Labels:  []string{"security-update"},
 		},
 		OsvVulnerabilityAlerts: true,
+		DependencyDashboard:    false,
 	}
 
 	outputPath := filepath.Join(gitHubDir, "renovate.json")
