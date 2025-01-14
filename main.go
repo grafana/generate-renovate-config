@@ -393,6 +393,7 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties) e
 		// Pin Go at the current version, since we want to upgrade it manually.
 		{
 			Description:       "Pin Go at the current version for the default branch",
+			MatchBaseBranches: []string{mainBranch},
 			MatchDatasources:  []string{"docker", "golang-version"},
 			MatchPackageNames: []string{"go", "golang"},
 			AllowedVersions:   branchProps[0].goVersion,
