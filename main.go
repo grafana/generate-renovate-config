@@ -54,6 +54,17 @@ func main() {
 		Name:      "generate-renovate-config",
 		Usage:     "Generate Renovate configuration for a repository",
 		ArgsUsage: "<repository>",
+		Flags: []cli.Flag{
+			&cli.StringSliceFlag{
+				Name:  "disable-package",
+				Usage: "Package names to disable updates for on the default branch",
+			},
+			&cli.StringFlag{
+				Name:  "disable-packages-reason",
+				Usage: "Description for configuration block containing packages disabled by --disable-package",
+				Value: "Disable updating of specific dependencies for default branch",
+			},
+		},
 		Action: func(cCtx *cli.Context) error {
 			if cCtx.Args().Len() != 1 {
 				return errors.New("wrong number of arguments")
@@ -81,7 +92,10 @@ func main() {
 				branchProps = append(branchProps, props)
 			}
 
-			return renderConfig(repoPath, mainBranch, branchProps)
+			disablePackages := cCtx.StringSlice("disable-package")
+			disablePackagesReason := cCtx.String("disable-packages-reason")
+
+			return renderConfig(repoPath, mainBranch, branchProps, disablePackages, disablePackagesReason)
 		},
 	}
 	if err := app.Run(os.Args); err != nil {
@@ -367,7 +381,7 @@ func deduceGoVersion(repoPath string) (string, error) {
 	return goVersion, nil
 }
 
-func renderConfig(repoPath, mainBranch string, branchProps []branchProperties) error {
+func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, disablePackages []string, disablePackagesReason string) error {
 	gitHubDir := filepath.Join(repoPath, ".github")
 	if err := os.MkdirAll(gitHubDir, 0o644); err != nil {
 		return fmt.Errorf("failed to create %q: %w", gitHubDir, err)
@@ -399,6 +413,15 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties) e
 			MatchPackageNames: []string{"go", "golang"},
 			AllowedVersions:   branchProps[0].goVersion,
 		},
+	}
+
+	if len(disablePackages) > 0 {
+		pkgRules = append(pkgRules, packageRules{
+			Description:       disablePackagesReason,
+			MatchBaseBranches: []string{mainBranch},
+			MatchPackageNames: disablePackages,
+			Enabled:           false,
+		})
 	}
 
 	for _, p := range branchProps[1:] {
