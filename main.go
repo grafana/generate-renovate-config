@@ -327,7 +327,7 @@ func getBranchProperties(repoPath, branch string) (branchProperties, error) {
 		return branchProps, fmt.Errorf("failed to read %q: %w", goModPath, err)
 	}
 
-	branchProps.goVersion, err = deduceGoVersion()
+	branchProps.goVersion, err = deduceGoVersion(repoPath)
 	return branchProps, err
 }
 
@@ -336,9 +336,9 @@ var (
 	reVersion   = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)$`)
 )
 
-func deduceGoVersion() (string, error) {
+func deduceGoVersion(repoPath string) (string, error) {
 	// TODO: Don't hard code.
-	fpath := filepath.Join("build-image", "Dockerfile")
+	fpath := filepath.Join(repoPath, "build-image", "Dockerfile")
 	file, err := os.Open(fpath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open file %q: %w", fpath, err)
