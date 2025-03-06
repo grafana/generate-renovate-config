@@ -29,6 +29,7 @@ type renovateConfiguration struct {
 	VulnerabilityAlerts    vulnerabilityAlerts `json:"vulnerabilityAlerts"`
 	OsvVulnerabilityAlerts bool                `json:"osvVulnerabilityAlerts"`
 	DependencyDashboard    bool                `json:"dependencyDashboard"`
+	CustomEnvVariables     map[string]string   `json:"customEnvVariables"`
 }
 
 type packageRules struct {
@@ -461,6 +462,9 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, d
 		},
 		OsvVulnerabilityAlerts: true,
 		DependencyDashboard:    false,
+		CustomEnvVariables: map[string]string{
+			"GOPRIVATE": "github.com/grafana",
+		},
 	}
 
 	outputPath := filepath.Join(gitHubDir, "renovate.json")
