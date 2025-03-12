@@ -30,6 +30,7 @@ type renovateConfiguration struct {
 	OsvVulnerabilityAlerts bool                `json:"osvVulnerabilityAlerts"`
 	DependencyDashboard    bool                `json:"dependencyDashboard"`
 	CustomEnvVariables     map[string]string   `json:"customEnvVariables,omitempty"`
+	PlatformAutoMerge      bool                `json:"platformAutomerge,omitempty"`
 }
 
 type packageRules struct {
@@ -37,8 +38,10 @@ type packageRules struct {
 	MatchBaseBranches []string `json:"matchBaseBranches,omitempty"`
 	MatchPackageNames []string `json:"matchPackageNames,omitempty"`
 	MatchDatasources  []string `json:"matchDatasources,omitempty"`
+	MatchPaths        []string `json:"matchPaths,omitempty"`
 	AllowedVersions   string   `json:"allowedVersions,omitempty"`
 	Enabled           bool     `json:"enabled"`
+	AutoMerge         bool     `json:"automerge,omitempty"`
 }
 
 type vulnerabilityAlerts struct {
@@ -64,6 +67,10 @@ func main() {
 				Name:  "disable-packages-reason",
 				Usage: "Description for configuration block containing packages disabled by --disable-package",
 				Value: "Disable updating of specific dependencies for default branch",
+			},
+			&cli.StringSliceFlag{
+				Name:  "auto-merge-path",
+				Usage: "Paths to auto-merge",
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
@@ -93,10 +100,11 @@ func main() {
 				branchProps = append(branchProps, props)
 			}
 
-			disablePackages := cCtx.StringSlice("disable-package")
-			disablePackagesReason := cCtx.String("disable-packages-reason")
-
-			return renderConfig(repoPath, mainBranch, branchProps, disablePackages, disablePackagesReason)
+			return renderConfig(repoPath, mainBranch, branchProps, renderOpts{
+				disablePackages:       cCtx.StringSlice("disable-package"),
+				disablePackagesReason: cCtx.String("disable-packages-reason"),
+				autoMergePaths:        cCtx.StringSlice("auto-merge-path"),
+			})
 		},
 	}
 	if err := app.Run(os.Args); err != nil {
@@ -382,7 +390,13 @@ func deduceGoVersion(repoPath string) (string, error) {
 	return goVersion, nil
 }
 
-func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, disablePackages []string, disablePackagesReason string) error {
+type renderOpts struct {
+	disablePackages       []string
+	disablePackagesReason string
+	autoMergePaths        []string
+}
+
+func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, opts renderOpts) error {
 	gitHubDir := filepath.Join(repoPath, ".github")
 	if err := os.MkdirAll(gitHubDir, 0o644); err != nil {
 		return fmt.Errorf("failed to create %q: %w", gitHubDir, err)
@@ -417,12 +431,20 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, d
 		},
 	}
 
-	if len(disablePackages) > 0 {
+	if len(opts.disablePackages) > 0 {
 		pkgRules = append(pkgRules, packageRules{
-			Description:       disablePackagesReason,
+			Description:       opts.disablePackagesReason,
 			MatchBaseBranches: []string{mainBranch},
-			MatchPackageNames: disablePackages,
+			MatchPackageNames: opts.disablePackages,
 			Enabled:           false,
+		})
+	}
+	if len(opts.autoMergePaths) > 0 {
+		pkgRules = append(pkgRules, packageRules{
+			Description: "Auto-merge packages matching paths",
+			MatchPaths:  opts.autoMergePaths,
+			AutoMerge:   true,
+			Enabled:     true,
 		})
 	}
 
@@ -467,6 +489,9 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, d
 		CustomEnvVariables: map[string]string{
 			"GOPRIVATE": "github.com/grafana",
 		},
+	}
+	if len(opts.autoMergePaths) > 0 {
+		cfg.PlatformAutoMerge = true
 	}
 
 	outputPath := filepath.Join(gitHubDir, "renovate.json")
