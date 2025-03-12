@@ -29,7 +29,7 @@ type renovateConfiguration struct {
 	VulnerabilityAlerts    vulnerabilityAlerts `json:"vulnerabilityAlerts"`
 	OsvVulnerabilityAlerts bool                `json:"osvVulnerabilityAlerts"`
 	DependencyDashboard    bool                `json:"dependencyDashboard"`
-	CustomEnvVariables     map[string]string   `json:"customEnvVariables"`
+	CustomEnvVariables     map[string]string   `json:"customEnvVariables,omitempty"`
 }
 
 type packageRules struct {
@@ -413,6 +413,7 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, d
 			MatchDatasources:  []string{"docker", "golang-version"},
 			MatchPackageNames: []string{"go", "golang"},
 			AllowedVersions:   branchProps[0].goVersion,
+			Enabled:           true,
 		},
 	}
 
@@ -443,6 +444,7 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, d
 				MatchDatasources:  []string{"docker", "golang-version"},
 				MatchPackageNames: []string{"go", "golang"},
 				AllowedVersions:   fmt.Sprintf("<=%s.%s", major, minor),
+				Enabled:           true,
 			},
 		)
 	}
