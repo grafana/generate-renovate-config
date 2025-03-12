@@ -441,10 +441,11 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 	}
 	if len(opts.autoMergePaths) > 0 {
 		pkgRules = append(pkgRules, packageRules{
-			Description: "Auto-merge packages matching paths",
-			MatchPaths:  opts.autoMergePaths,
-			AutoMerge:   true,
-			Enabled:     true,
+			Description:       "Auto-merge packages matching paths",
+			MatchBaseBranches: []string{mainBranch},
+			MatchPaths:        opts.autoMergePaths,
+			AutoMerge:         true,
+			Enabled:           true,
 		})
 	}
 
