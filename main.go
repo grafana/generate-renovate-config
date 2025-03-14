@@ -40,6 +40,7 @@ type packageRules struct {
 	MatchDatasources  []string `json:"matchDatasources,omitempty"`
 	MatchPaths        []string `json:"matchPaths,omitempty"`
 	AllowedVersions   string   `json:"allowedVersions,omitempty"`
+	GroupName         string   `json:"groupName,omitempty"`
 	Enabled           bool     `json:"enabled"`
 	AutoMerge         bool     `json:"automerge,omitempty"`
 }
@@ -71,6 +72,10 @@ func main() {
 			&cli.StringSliceFlag{
 				Name:  "auto-merge-path",
 				Usage: "Paths to auto-merge",
+			},
+			&cli.StringSliceFlag{
+				Name:  "group-path",
+				Usage: "Paths to group (format: path:group-name)",
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
@@ -104,6 +109,7 @@ func main() {
 				disablePackages:       cCtx.StringSlice("disable-package"),
 				disablePackagesReason: cCtx.String("disable-packages-reason"),
 				autoMergePaths:        cCtx.StringSlice("auto-merge-path"),
+				groupPaths:            cCtx.StringSlice("group-path"),
 			})
 		},
 	}
@@ -357,6 +363,7 @@ func getBranchProperties(repoPath, branch string) (branchProperties, error) {
 var (
 	reGoVersion = regexp.MustCompile(`^FROM golang:(\d+\.\d+\.\d+)(?:[^0-9].*)`)
 	reVersion   = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)$`)
+	reGroupSpec = regexp.MustCompile(`^([^:]+):([^:]+)$`)
 )
 
 func deduceGoVersion(repoPath string) (string, error) {
@@ -394,6 +401,7 @@ type renderOpts struct {
 	disablePackages       []string
 	disablePackagesReason string
 	autoMergePaths        []string
+	groupPaths            []string
 }
 
 func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, opts renderOpts) error {
@@ -447,6 +455,27 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 			AutoMerge:         true,
 			Enabled:           true,
 		})
+	}
+	if len(opts.groupPaths) > 0 {
+		groups := map[string][]string{}
+		for _, spec := range opts.groupPaths {
+			ms := reGroupSpec.FindStringSubmatch(spec)
+			if len(ms) == 0 {
+				return fmt.Errorf("invalid group path spec: %q", spec)
+			}
+			paths := ms[1]
+			name := ms[2]
+			groups[name] = append(groups[name], paths)
+		}
+		for name, paths := range groups {
+			pkgRules = append(pkgRules, packageRules{
+				Description: "Group paths",
+				GroupName:   name,
+				MatchBaseBranches: []string{mainBranch},
+				MatchPaths:  paths,
+				Enabled:     true,
+			})
+		}
 	}
 
 	for _, p := range branchProps[1:] {
