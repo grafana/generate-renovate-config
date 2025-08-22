@@ -97,7 +97,7 @@ func main() {
 			}
 
 			var branchProps []branchProperties
-			for _, b := range append([]string{mainBranch}, rlsBranches...) {
+			for _, b := range append([]string{""}, rlsBranches...) {
 				props, err := getBranchProperties(repoPath, b)
 				if err != nil {
 					return err
@@ -253,53 +253,27 @@ type branchProperties struct {
 }
 
 // getBranchProperties returns properties per branch.
+// If branch is empty, this means to use the current branch.
 func getBranchProperties(repoPath, branch string) (branchProperties, error) {
-	// Switch repo to branch before analyzing go.mod.
-
 	branchProps := branchProperties{name: branch}
 
-	cmd := exec.Command("git", "branch", "--show-current")
-	cmd.Dir = repoPath
-	var b strings.Builder
-	cmd.Stdout = &b
-	if err := cmd.Run(); err != nil {
-		return branchProps, fmt.Errorf("failed to execute 'git branch --show-current': %w", err)
-	}
-	origBranch := strings.TrimSpace(b.String())
-
-	var origCommit string
-	if origBranch == "" {
-		// We're not on a branch, stick with the commit.
-		cmd := exec.Command("git", "rev-parse", "--short", "HEAD")
-		cmd.Dir = repoPath
-		b.Reset()
-		cmd.Stdout = &b
-		if err := cmd.Run(); err != nil {
-			return branchProps, fmt.Errorf("failed to execute 'git rev-parse --short HEAD': %w", err)
+	if branch != "" {
+		// Analyzing another branch than the current one, switch to it before analyzing go.mod.
+		origBranch, origCommit, err := switchToBranch(repoPath, branch)
+		if err != nil {
+			return branchProperties{}, err
 		}
-		origCommit = strings.TrimSpace(b.String())
+		defer func() {
+			var cmd *exec.Cmd
+			if origBranch != "" {
+				cmd = exec.Command("git", "switch", origBranch)
+			} else {
+				cmd = exec.Command("git", "checkout", origCommit)
+			}
+			cmd.Dir = repoPath
+			_ = cmd.Run()
+		}()
 	}
-
-	cmd = exec.Command("git", "switch", branch)
-	cmd.Dir = repoPath
-	b.Reset()
-	cmd.Stderr = &b
-	if err := cmd.Run(); err != nil {
-		errMsg := b.String()
-		cmd = exec.Command("git", "branch")
-		cmd.Dir = repoPath
-		_ = cmd.Run()
-		return branchProps, fmt.Errorf("failed to execute 'git switch %s' in %q: %s", branch, repoPath, errMsg)
-	}
-	defer func() {
-		if origBranch != "" {
-			cmd = exec.Command("git", "switch", origBranch)
-		} else {
-			cmd = exec.Command("git", "checkout", origCommit)
-		}
-		cmd.Dir = repoPath
-		_ = cmd.Run()
-	}()
 
 	goModPath := filepath.Join(repoPath, "go.mod")
 	inputf, err := os.Open(goModPath)
@@ -358,6 +332,41 @@ func getBranchProperties(repoPath, branch string) (branchProperties, error) {
 
 	branchProps.goVersion, err = deduceGoVersion(repoPath)
 	return branchProps, err
+}
+
+func switchToBranch(repoPath, branch string) (string, string, error) {
+	cmd := exec.Command("git", "branch", "--show-current")
+	cmd.Dir = repoPath
+	var b strings.Builder
+	cmd.Stdout = &b
+	if err := cmd.Run(); err != nil {
+		return "", "", fmt.Errorf("failed to execute 'git branch --show-current': %w", err)
+	}
+	origBranch := strings.TrimSpace(b.String())
+
+	var origCommit string
+	if origBranch == "" {
+		// We're not on a branch, stick with the commit.
+		cmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+		cmd.Dir = repoPath
+		b.Reset()
+		cmd.Stdout = &b
+		if err := cmd.Run(); err != nil {
+			return "", "", fmt.Errorf("failed to execute 'git rev-parse --short HEAD': %w", err)
+		}
+		origCommit = strings.TrimSpace(b.String())
+	}
+
+	cmd = exec.Command("git", "switch", branch)
+	cmd.Dir = repoPath
+	b.Reset()
+	cmd.Stderr = &b
+	if err := cmd.Run(); err != nil {
+		errMsg := b.String()
+		return "", "", fmt.Errorf("failed to execute 'git switch %s' in %q: %s", branch, repoPath, errMsg)
+	}
+
+	return origBranch, origCommit, nil
 }
 
 var (
@@ -469,11 +478,11 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 		}
 		for name, paths := range groups {
 			pkgRules = append(pkgRules, packageRules{
-				Description: "Group paths",
-				GroupName:   name,
+				Description:       "Group paths",
+				GroupName:         name,
 				MatchBaseBranches: []string{mainBranch},
-				MatchPaths:  paths,
-				Enabled:     true,
+				MatchPaths:        paths,
+				Enabled:           true,
 			})
 		}
 	}
