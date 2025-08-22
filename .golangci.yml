@@ -1,107 +1,102 @@
-run:
-  timeout: 15m
-
-output:
-  sort-results: true
-
+version: "2"
 linters:
   enable:
     - depguard
     - errorlint
     - gocritic
     - godot
-    - gofumpt
-    - goimports
+    - loggercheck
     - misspell
     - nolintlint
     - predeclared
     - revive
+    - sloglint
     - testifylint
     - unconvert
-    - unused
     - usestdlibvars
     - whitespace
-    - loggercheck
-    - sloglint
-
+  settings:
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: io/ioutil
+              desc: Use corresponding 'os' or 'io' functions instead.
+            - pkg: github.com/pkg/errors
+              desc: Use 'errors' or 'fmt' instead of github.com/pkg/errors
+            - pkg: golang.org/x/exp/slices
+              desc: Use 'slices' instead.
+    revive:
+      rules:
+        - name: blank-imports
+        - name: comment-spacings
+        - name: context-as-argument
+          arguments:
+            - allowTypesBefore: '*testing.T,testing.TB'
+        - name: context-keys-type
+        - name: dot-imports
+        - name: empty-block
+          disabled: true
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+          disabled: true
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+          disabled: true
+        - name: var-declaration
+        - name: var-naming
+    testifylint:
+      enable-all: true
+      disable:
+        - float-compare
+        - go-require
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - errcheck
+        text: Error return value of .((os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*print(f|ln)?|os\.(Un)?Setenv). is not checked
+      - linters:
+          - revive
+        text: exported (.+) should have comment( \(or a comment on this block\))? or be unexported
+      - linters:
+          - errcheck
+        path: _test.go
+      - linters:
+          - godot
+        source: ^// ===
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-  # The default exclusions are too aggressive. For one, they
-  # essentially disable any linting on doc comments. We disable
-  # default exclusions here and add exclusions fitting our codebase
-  # further down.
-  exclude-use-default: false
-  exclude-rules:
-    - linters:
-        - errcheck
-      # Taken from the default exclusions (that are otherwise disabled above).
-      text: Error return value of .((os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*print(f|ln)?|os\.(Un)?Setenv). is not checked
-    - linters:
-        - revive
-      # TODO: Enable at a later stage
-      text: exported (.+) should have comment( \(or a comment on this block\))? or be unexported
-    - path: _test.go
-      linters:
-        - errcheck
-    - linters:
-        - godot
-      source: "^// ==="
-linters-settings:
-  depguard:
-    rules:
-      main:
-        deny:
-          - pkg: "io/ioutil"
-            desc: "Use corresponding 'os' or 'io' functions instead."
-          - pkg: "github.com/pkg/errors"
-            desc: "Use 'errors' or 'fmt' instead of github.com/pkg/errors"
-          - pkg: "golang.org/x/exp/slices"
-            desc: "Use 'slices' instead."
-  goimports:
-    local-prefixes: github.com/grafana/generate-renovate-config
-  gofumpt:
-    extra-rules: true
-  revive:
-    # By default, revive will enable only the linting rules that are named in the configuration file.
-    # So, it's needed to explicitly enable all required rules here.
-    rules:
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md
-      - name: blank-imports
-      - name: comment-spacings
-      - name: context-as-argument
-        arguments:
-          # Allow functions with test or bench signatures.
-          - allowTypesBefore: "*testing.T,testing.TB"
-      - name: context-keys-type
-      - name: dot-imports
-      # A lot of false positives: incorrectly identifies channel draining as "empty code block".
-      # See https://github.com/mgechev/revive/issues/386
-      - name: empty-block
-        disabled: true
-      - name: error-naming
-      - name: error-return
-      - name: error-strings
-      - name: errorf
-      - name: exported
-      - name: increment-decrement
-      - name: indent-error-flow
-      - name: package-comments
-        # Enable at a later stage.
-        disabled: true
-      - name: range
-      - name: receiver-naming
-      - name: redefines-builtin-id
-      - name: superfluous-else
-      - name: time-naming
-      - name: unexported-return
-      - name: unreachable-code
-      - name: unused-parameter
-        disabled: true
-      - name: var-declaration
-      - name: var-naming
-  testifylint:
-    disable:
-      - float-compare
-      - go-require
-    enable-all: true
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      extra-rules: true
+    goimports:
+      local-prefixes:
+        - github.com/grafana/generate-renovate-config
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
