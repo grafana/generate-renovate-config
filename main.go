@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -55,7 +56,7 @@ func main() {
 	mainBranch := "master"
 	// TODO: Let user specify.
 	rlsBranchPre := "gem-release-"
-	app := &cli.App{
+	app := &cli.Command{
 		Name:      "generate-renovate-config",
 		Usage:     "Generate Renovate configuration for a repository",
 		ArgsUsage: "<repository>",
@@ -78,17 +79,17 @@ func main() {
 				Usage: "Paths to group (format: path:group-name)",
 			},
 		},
-		Action: func(cCtx *cli.Context) error {
-			if cCtx.Args().Len() != 1 {
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			if cmd.Args().Len() != 1 {
 				return errors.New("wrong number of arguments")
 			}
 
-			repoPath, err := filepath.Abs(cCtx.Args().Get(0))
+			repoPath, err := filepath.Abs(cmd.Args().Get(0))
 			if err != nil {
 				return fmt.Errorf("failed to get absolute repo path: %w", err)
 			}
 			if repoPath == "" {
-				return fmt.Errorf("empty repo path %q", cCtx.Args().Get(0))
+				return fmt.Errorf("empty repo path %q", cmd.Args().Get(0))
 			}
 
 			rlsBranches, err := deduceBranches(repoPath, mainBranch, rlsBranchPre)
@@ -106,14 +107,14 @@ func main() {
 			}
 
 			return renderConfig(repoPath, mainBranch, branchProps, renderOpts{
-				disablePackages:       cCtx.StringSlice("disable-package"),
-				disablePackagesReason: cCtx.String("disable-packages-reason"),
-				autoMergePaths:        cCtx.StringSlice("auto-merge-path"),
-				groupPaths:            cCtx.StringSlice("group-path"),
+				disablePackages:       cmd.StringSlice("disable-package"),
+				disablePackagesReason: cmd.String("disable-packages-reason"),
+				autoMergePaths:        cmd.StringSlice("auto-merge-path"),
+				groupPaths:            cmd.StringSlice("group-path"),
 			})
 		},
 	}
-	if err := app.Run(os.Args); err != nil {
+	if err := app.Run(context.Background(), os.Args); err != nil {
 		bail(err)
 	}
 }
