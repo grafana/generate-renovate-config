@@ -28,10 +28,12 @@ type renovateConfiguration struct {
 	BranchPrefix           string              `json:"branchPrefix"`
 	PackageRules           []packageRules      `json:"packageRules"`
 	VulnerabilityAlerts    vulnerabilityAlerts `json:"vulnerabilityAlerts"`
-	OsvVulnerabilityAlerts bool                `json:"osvVulnerabilityAlerts"`
+	OSVVulnerabilityAlerts bool                `json:"osvVulnerabilityAlerts"`
 	DependencyDashboard    bool                `json:"dependencyDashboard"`
 	CustomEnvVariables     map[string]string   `json:"customEnvVariables,omitempty"`
 	PlatformAutoMerge      bool                `json:"platformAutomerge,omitempty"`
+	PRHourlyLimit          int                 `json:"prHourlyLimit"`
+	PRConcurrentLimit      int                 `json:"prConcurrentLimit"`
 }
 
 type packageRules struct {
@@ -524,11 +526,13 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 			Enabled: true,
 			Labels:  []string{"security-update"},
 		},
-		OsvVulnerabilityAlerts: true,
+		OSVVulnerabilityAlerts: true,
 		DependencyDashboard:    false,
 		CustomEnvVariables: map[string]string{
 			"GOPRIVATE": "github.com/grafana",
 		},
+		PRHourlyLimit:     10,
+		PRConcurrentLimit: 20,
 	}
 	if len(opts.autoMergePaths) > 0 {
 		cfg.PlatformAutoMerge = true
