@@ -94,7 +94,12 @@ func main() {
 				return fmt.Errorf("empty repo path %q", cmd.Args().Get(0))
 			}
 
-			rlsBranches, err := deduceBranches(repoPath, mainBranch, rlsBranchPre)
+			cfg, err := readConfig(repoPath)
+			if err != nil {
+				return err
+			}
+
+			rlsBranches, err := deduceBranches(repoPath, mainBranch, rlsBranchPre, cfg)
 			if err != nil {
 				return err
 			}
@@ -123,7 +128,19 @@ func main() {
 
 // deduceBranches fetches mainBranch and branches matching rlsBranchPre from origin.
 // The relevant release branches are returned.
-func deduceBranches(repoPath, mainBranch, rlsBranchPre string) ([]string, error) {
+func deduceBranches(repoPath, mainBranch, rlsBranchPre string, cfg config) ([]string, error) {
+	filterBranches := func(versions []version) []string {
+		var branches []string
+		for _, v := range versions {
+			if slices.Contains(cfg.UnmaintainedVersions, fmt.Sprintf("%d.%d", v.major, v.minor)) {
+				continue
+			}
+
+			branches = append(branches, v.branch)
+		}
+		return branches
+	}
+
 	// Make sure the branches are available locally, in case we're under CI.
 	refSpec := fmt.Sprintf("refs/heads/%s*:refs/remotes/origin/%s*", rlsBranchPre, rlsBranchPre)
 	var b strings.Builder
@@ -191,10 +208,11 @@ func deduceBranches(repoPath, mainBranch, rlsBranchPre string) ([]string, error)
 
 	currentMajor := versions[0].major
 
-	rlsBranches := []string{versions[0].branch}
+	maintainedVersions := []version{versions[0]}
+
 	if len(versions) > 1 && versions[1].major == currentMajor {
-		// Maintain the previous minor branch of the current major.
-		rlsBranches = append(rlsBranches, versions[1].branch)
+		// Maintain the previous minor of the current major version.
+		maintainedVersions = append(maintainedVersions, versions[1])
 	}
 
 	prevMajor := -1
@@ -207,7 +225,7 @@ func deduceBranches(repoPath, mainBranch, rlsBranchPre string) ([]string, error)
 		}
 	}
 	if prevMajor < 0 {
-		return rlsBranches, nil
+		return filterBranches(maintainedVersions), nil
 	}
 
 	// Determine whether previous major is within maintenance window (<= 1 year old),
@@ -239,10 +257,10 @@ func deduceBranches(repoPath, mainBranch, rlsBranchPre string) ([]string, error)
 	// Avg. days in a year: 365.25.
 	if age.Seconds() <= (365.25 * 24 * 60 * 60) {
 		// OK, this major is still supported.
-		rlsBranches = append(rlsBranches, prevMajorVer.branch)
+		maintainedVersions = append(maintainedVersions, prevMajorVer)
 	}
 
-	return rlsBranches, nil
+	return filterBranches(maintainedVersions), nil
 }
 
 type version struct {
