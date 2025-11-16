@@ -170,7 +170,7 @@ func deduceBranches(repoPath, mainBranch, rlsBranchPre string) ([]string, error)
 		if a.major < b.major {
 			return 1
 		}
-		if a.minor > b.minor {
+		if a.major > b.major {
 			return -1
 		}
 
@@ -189,12 +189,14 @@ func deduceBranches(repoPath, mainBranch, rlsBranchPre string) ([]string, error)
 		return nil, fmt.Errorf("no release branches could be found")
 	}
 
+	currentMajor := versions[0].major
+
 	rlsBranches := []string{versions[0].branch}
-	if len(versions) > 1 {
+	if len(versions) > 1 && versions[1].major == currentMajor {
+		// Maintain the previous minor branch of the current major.
 		rlsBranches = append(rlsBranches, versions[1].branch)
 	}
 
-	currentMajor := versions[0].major
 	prevMajor := -1
 	var prevMajorVer version
 	for _, v := range versions {
