@@ -554,7 +554,7 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 		CustomManagers: []customManager{
 			{
 				CustomType:           "regex",
-				ManagerFilePatterns:  []string{"/Makefile$/"},
+				ManagerFilePatterns:  []string{"Makefile"},
 				MatchStrings:         []string{`(?<depName>gcr\.io/distroless/[\w-]+)@(?<currentDigest>sha256:[a-f0-9]+)`},
 				DatasourceTemplate:   "docker",
 				CurrentValueTemplate: "latest",
