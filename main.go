@@ -27,6 +27,7 @@ type renovateConfiguration struct {
 	PostUpdateOptions      []string            `json:"postUpdateOptions"`
 	BranchPrefix           string              `json:"branchPrefix"`
 	PackageRules           []packageRules      `json:"packageRules"`
+	CustomManagers         []customManager     `json:"customManagers,omitempty"`
 	VulnerabilityAlerts    vulnerabilityAlerts `json:"vulnerabilityAlerts"`
 	OSVVulnerabilityAlerts bool                `json:"osvVulnerabilityAlerts"`
 	DependencyDashboard    bool                `json:"dependencyDashboard"`
@@ -34,6 +35,14 @@ type renovateConfiguration struct {
 	PlatformAutoMerge      bool                `json:"platformAutomerge,omitempty"`
 	PRHourlyLimit          int                 `json:"prHourlyLimit"`
 	PRConcurrentLimit      int                 `json:"prConcurrentLimit"`
+}
+
+type customManager struct {
+	CustomType           string   `json:"customType"`
+	ManagerFilePatterns  []string `json:"managerFilePatterns"`
+	MatchStrings         []string `json:"matchStrings"`
+	DatasourceTemplate   string   `json:"datasourceTemplate"`
+	CurrentValueTemplate string   `json:"currentValueTemplate"`
 }
 
 type packageRules struct {
@@ -542,6 +551,15 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 		},
 		BranchPrefix: "deps-update/",
 		PackageRules: pkgRules,
+		CustomManagers: []customManager{
+			{
+				CustomType:           "regex",
+				ManagerFilePatterns:  []string{"Makefile"},
+				MatchStrings:         []string{`(?<depName>gcr\.io/distroless/[\w-]+)@(?<currentDigest>sha256:[a-f0-9]+)`},
+				DatasourceTemplate:   "docker",
+				CurrentValueTemplate: "latest",
+			},
+		},
 		VulnerabilityAlerts: vulnerabilityAlerts{
 			Enabled: true,
 			Labels:  []string{"security-update"},
