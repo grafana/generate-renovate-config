@@ -93,6 +93,40 @@ The tool switches between git branches to analyze each branch's dependencies ind
 **Group Path Format:**
 The `--group-path` flag expects format "path:group-name" (e.g., "stacks/dev-*:dev-stacks"), parsed by regex at line 375.
 
+## Testing Generated Config
+
+After generating a renovate.json, verify it locally using the Renovate Docker image.
+
+Set `RENOVATE_TOKEN` using GitHub CLI:
+```bash
+export RENOVATE_TOKEN=$(gh auth token)
+```
+
+```bash
+cd <target-repository>
+docker run -i --rm \
+  -v $(realpath .):/repo -w /repo \
+  -e LOG_LEVEL=debug \
+  -e RENOVATE_TOKEN="$RENOVATE_TOKEN" \
+  -e RENOVATE_PLATFORM=local \
+  ghcr.io/renovatebot/renovate:42.91.0 \
+  --dry-run=full
+```
+
+Use `--enabled-managers` to test specific managers (faster iteration):
+```bash
+docker run -i --rm \
+  -v $(realpath .):/repo -w /repo \
+  -e LOG_LEVEL=debug \
+  -e RENOVATE_TOKEN="$RENOVATE_TOKEN" \
+  -e RENOVATE_PLATFORM=local \
+  ghcr.io/renovatebot/renovate:42.91.0 \
+  --dry-run=full \
+  --enabled-managers=gomod
+```
+
+Available managers: `gomod`, `dockerfile`, `regex`, etc. See [Renovate manager docs](https://docs.renovatebot.com/modules/manager/).
+
 ## Linting Configuration
 
 The project uses golangci-lint with extensive linters enabled (see .golangci.yml):
