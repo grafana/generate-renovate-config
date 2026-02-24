@@ -49,6 +49,7 @@ type packageRules struct {
 	Description       string   `json:"description"`
 	MatchBaseBranches []string `json:"matchBaseBranches,omitempty"`
 	MatchPackageNames []string `json:"matchPackageNames,omitempty"`
+	MatchUpdateTypes  []string `json:"matchUpdateTypes,omitempty"`
 	MatchDatasources  []string `json:"matchDatasources,omitempty"`
 	MatchPaths        []string `json:"matchPaths,omitempty"`
 	AllowedVersions   string   `json:"allowedVersions,omitempty"`
@@ -461,6 +462,12 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 			Description:       "Disable non-security updates for release branches",
 			MatchBaseBranches: rlsBranches,
 			MatchPackageNames: []string{"*"},
+			Enabled:           false,
+		},
+		{
+			Description:       "Disable lock file maintenance for release branches",
+			MatchBaseBranches: rlsBranches,
+			MatchUpdateTypes:  []string{"lockFileMaintenance"},
 			Enabled:           false,
 		},
 		{
