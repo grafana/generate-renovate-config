@@ -46,16 +46,22 @@ type customManager struct {
 }
 
 type packageRules struct {
-	Description       string   `json:"description"`
-	MatchBaseBranches []string `json:"matchBaseBranches,omitempty"`
-	MatchPackageNames []string `json:"matchPackageNames,omitempty"`
-	MatchUpdateTypes  []string `json:"matchUpdateTypes,omitempty"`
-	MatchDatasources  []string `json:"matchDatasources,omitempty"`
-	MatchPaths        []string `json:"matchPaths,omitempty"`
-	AllowedVersions   string   `json:"allowedVersions,omitempty"`
-	GroupName         string   `json:"groupName,omitempty"`
-	Enabled           bool     `json:"enabled"`
-	AutoMerge         bool     `json:"automerge,omitempty"`
+	Description            string   `json:"description"`
+	MatchBaseBranches      []string `json:"matchBaseBranches,omitempty"`
+	MatchPackageNames      []string `json:"matchPackageNames,omitempty"`
+	MatchUpdateTypes       []string `json:"matchUpdateTypes,omitempty"`
+	MatchDatasources       []string `json:"matchDatasources,omitempty"`
+	MatchPaths             []string `json:"matchPaths,omitempty"`
+	AllowedVersions        string   `json:"allowedVersions,omitempty"`
+	GroupName              string   `json:"groupName,omitempty"`
+	Versioning             string   `json:"versioning,omitempty"`
+	AdditionalBranchPrefix string   `json:"additionalBranchPrefix,omitempty"`
+	CommitMessagePrefix    string   `json:"commitMessagePrefix,omitempty"`
+	CommitMessageAction    string   `json:"commitMessageAction,omitempty"`
+	CommitMessageTopic     string   `json:"commitMessageTopic,omitempty"`
+	CommitMessageExtra     string   `json:"commitMessageExtra,omitempty"`
+	Enabled                bool     `json:"enabled"`
+	AutoMerge              bool     `json:"automerge,omitempty"`
 }
 
 type vulnerabilityAlerts struct {
@@ -484,6 +490,23 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 			MatchPackageNames: []string{"go", "golang"},
 			AllowedVersions:   branchProps[0].goVersion,
 			Enabled:           true,
+		},
+		// grafana/shared-workflows is a monorepo whose actions are tagged as
+		// `<action-name>/v<semver>` (e.g. `create-github-app-token/v0.2.2`).
+		// Renovate cannot compare those tags with its default versioning, so
+		// references to those actions are never auto-bumped without this rule.
+		// Canonical config: https://github.com/grafana/shared-workflows#custom-renovate-config
+		{
+			Description:            "Auto-bump grafana/shared-workflows actions (per-action semver tags)",
+			MatchBaseBranches:      []string{mainBranch},
+			MatchPackageNames:      []string{"grafana/shared-workflows"},
+			Versioning:             `regex:^(?<compatibility>.*)[-/]v?(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)?$`,
+			AdditionalBranchPrefix: `{{ lookup (split newVersion "/") 0 }}-`,
+			CommitMessagePrefix:    "chore(deps):",
+			CommitMessageAction:    "update",
+			CommitMessageTopic:     `{{depName}}/{{ lookup (split newVersion "/") 0 }} action`,
+			CommitMessageExtra:     `to {{ lookup (split newVersion "/") 1 }}`,
+			Enabled:                true,
 		},
 	}
 
