@@ -497,7 +497,8 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 		// references to those actions are never auto-bumped without this rule.
 		// Canonical config: https://github.com/grafana/shared-workflows#custom-renovate-config
 		{
-			Description:            "Auto-bump grafana/shared-workflows actions (per-action semver tags).",
+			Description:            "Auto-bump grafana/shared-workflows actions (per-action semver tags)",
+			MatchBaseBranches:      []string{mainBranch},
 			MatchPackageNames:      []string{"grafana/shared-workflows"},
 			Versioning:             `regex:^(?<compatibility>.*)[-/]v?(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)?$`,
 			AdditionalBranchPrefix: `{{ lookup (split newVersion "/") 0 }}-`,
