@@ -573,7 +573,7 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 	}
 	cfg := renovateConfiguration{
 		Schema:       "https://docs.renovatebot.com/renovate-schema.json",
-		Extends:      []string{"config:recommended"},
+		Extends:      []string{"config:recommended", "helpers:pinGitHubActionDigests"},
 		BaseBranches: append([]string{mainBranch}, rlsBranches...),
 		PostUpdateOptions: []string{
 			"gomodTidy",
