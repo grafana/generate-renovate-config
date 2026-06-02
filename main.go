@@ -369,6 +369,9 @@ func getBranchProperties(repoPath, branch string) (branchProperties, error) {
 		return branchProps, fmt.Errorf("failed to read %q: %w", goModPath, err)
 	}
 
+	// Sort for stable output regardless of go.mod source order.
+	slices.Sort(branchProps.replaced)
+
 	branchProps.goVersion, err = deduceGoVersion(repoPath)
 	return branchProps, err
 }
