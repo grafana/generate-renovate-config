@@ -134,6 +134,7 @@ func main() {
 				disablePackagesReason: cmd.String("disable-packages-reason"),
 				autoMergePaths:        cmd.StringSlice("auto-merge-path"),
 				groupPaths:            cmd.StringSlice("group-path"),
+				digestPinnedImages:    cfg.DigestPinnedImages,
 			})
 		},
 	}
@@ -453,6 +454,23 @@ type renderOpts struct {
 	disablePackagesReason string
 	autoMergePaths        []string
 	groupPaths            []string
+	digestPinnedImages    []digestPinnedImage
+}
+
+// digestPinManagers generates a custom manager per digest-pinned image, so that Renovate
+// bumps each image@sha256:... reference as the image's `latest` tag advances.
+func digestPinManagers(pins []digestPinnedImage) []customManager {
+	var mgrs []customManager
+	for _, img := range pins {
+		mgrs = append(mgrs, customManager{
+			CustomType:           "regex",
+			ManagerFilePatterns:  img.FilePatterns,
+			MatchStrings:         []string{fmt.Sprintf(`(?<depName>%s)@(?<currentDigest>sha256:[a-f0-9]+)`, regexp.QuoteMeta(img.Image))},
+			DatasourceTemplate:   "docker",
+			CurrentValueTemplate: "latest",
+		})
+	}
+	return mgrs
 }
 
 func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, opts renderOpts) error {
@@ -584,7 +602,7 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 		},
 		BranchPrefix: "deps-update/",
 		PackageRules: pkgRules,
-		CustomManagers: []customManager{
+		CustomManagers: append([]customManager{
 			{
 				CustomType:           "regex",
 				ManagerFilePatterns:  []string{"Makefile"},
@@ -592,7 +610,7 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 				DatasourceTemplate:   "docker",
 				CurrentValueTemplate: "latest",
 			},
-		},
+		}, digestPinManagers(opts.digestPinnedImages)...),
 		VulnerabilityAlerts: vulnerabilityAlerts{
 			Enabled: true,
 			Labels:  []string{"security-update"},
