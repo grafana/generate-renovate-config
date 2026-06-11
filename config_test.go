@@ -28,20 +28,20 @@ func TestReadConfig(t *testing.T) {
 
 	tests := map[string]struct {
 		content string
-		expErr string
-		expCfg config
+		expErr  string
+		expCfg  config
 	}{
 		"valid config": {
 			content: `unmaintained_versions: ['3.0']
 digest_pinned_images:
-  - image: us-docker.pkg.dev/grafanalabs-global/docker-deployment-tools-prod/cortex-rt
+  - image: grafana/example
     file_patterns: ['.github/workflows/ci.yml']
 `,
 			expCfg: config{
 				UnmaintainedVersions: []string{"3.0"},
 				DigestPinnedImages: []digestPinnedImage{
 					{
-						Image:        "us-docker.pkg.dev/grafanalabs-global/docker-deployment-tools-prod/cortex-rt",
+						Image:        "grafana/example",
 						FilePatterns: []string{".github/workflows/ci.yml"},
 					},
 				},
@@ -105,7 +105,7 @@ digest_pinned_images:
 func TestDigestPinManagers(t *testing.T) {
 	mgrs := digestPinManagers([]digestPinnedImage{
 		{
-			Image:        "us-docker.pkg.dev/grafanalabs-global/docker-deployment-tools-prod/cortex-rt",
+			Image:        "grafana/example",
 			FilePatterns: []string{".github/workflows/ci.yml"},
 		},
 	})
@@ -117,18 +117,18 @@ func TestDigestPinManagers(t *testing.T) {
 	require.Equal(t, "docker", mgr.DatasourceTemplate)
 	require.Equal(t, "latest", mgr.CurrentValueTemplate)
 	require.Equal(t, []string{
-		`(?<depName>us-docker\.pkg\.dev/grafanalabs-global/docker-deployment-tools-prod/cortex-rt)@(?<currentDigest>sha256:[a-f0-9]+)`,
+		`(?<depName>grafana/example)@(?<currentDigest>sha256:[a-f0-9]+)`,
 	}, mgr.MatchStrings)
 
 	// Renovate evaluates matchStrings with RE2, whose only syntactical difference from Go's
 	// regexp package here is the named capture groups ((?<name>...) instead of (?P<name>...)).
 	// Translate and verify the expression against a realistic workflow line.
 	re := regexp.MustCompile(strings.ReplaceAll(mgr.MatchStrings[0], "(?<", "(?P<"))
-	line := "          us-docker.pkg.dev/grafanalabs-global/docker-deployment-tools-prod/cortex-rt@sha256:9e118b49519e910a32a20b65df43b2b4b67aeefe205c679a4b8f395f737ca8b7 -v"
+	line := "          grafana/example@sha256:9e118b49519e910a32a20b65df43b2b4b67aeefe205c679a4b8f395f737ca8b7 -v"
 	ms := re.FindStringSubmatch(line)
 	require.NotNil(t, ms)
-	require.Equal(t, "us-docker.pkg.dev/grafanalabs-global/docker-deployment-tools-prod/cortex-rt", ms[re.SubexpIndex("depName")])
+	require.Equal(t, "grafana/example", ms[re.SubexpIndex("depName")])
 	require.Equal(t, "sha256:9e118b49519e910a32a20b65df43b2b4b67aeefe205c679a4b8f395f737ca8b7", ms[re.SubexpIndex("currentDigest")])
 
-	require.False(t, re.MatchString("us-docker.pkg.dev/grafanalabs-global/docker-deployment-tools-prod/cortex-rt:latest -v"))
+	require.False(t, re.MatchString("grafana/example:latest -v"))
 }
