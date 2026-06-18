@@ -17,4 +17,12 @@ unmaintained_versions: ['3.0']
 digest_pinned_images:
   - image: us-docker.pkg.dev/grafanalabs-global/docker-deployment-tools-prod/cortex-rt
     file_patterns: ['.github/workflows/ci.yml']
+# Custom package rules appended verbatim to the generated Renovate packageRules array.
+# Keys are passed through to JSON unchanged, so any Renovate packageRules field is
+# accepted. They are appended last, so they override the rules this tool generates.
+package_rules:
+  - description: Slow down major updates for foo/bar
+    matchPackageNames: ['foo/bar']
+    matchUpdateTypes: ['major']
+    minimumReleaseAge: '7 days'
 ```

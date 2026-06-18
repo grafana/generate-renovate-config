@@ -87,6 +87,42 @@ digest_pinned_images:
 `,
 			expErr: "digest_pinned_images[0]: file_patterns must not be empty",
 		},
+		"custom package rules": {
+			content: `package_rules:
+  - description: Slow down updates
+    matchPackageNames: ['foo/bar']
+    matchUpdateTypes: ['major']
+    enabled: false
+    minimumReleaseAge: '7 days'
+  - description: Group dev tools
+    matchPackageNames: ['golang.org/x/*']
+    groupName: dev-tools
+`,
+			expCfg: config{
+				PackageRules: []map[string]any{
+					{
+						"description":       "Slow down updates",
+						"matchPackageNames": []any{"foo/bar"},
+						"matchUpdateTypes":  []any{"major"},
+						"enabled":           false,
+						"minimumReleaseAge": "7 days",
+					},
+					{
+						"description":       "Group dev tools",
+						"matchPackageNames": []any{"golang.org/x/*"},
+						"groupName":         "dev-tools",
+					},
+				},
+			},
+		},
+		"empty package rule fails validation": {
+			content: `package_rules:
+  - description: ok rule
+    enabled: false
+  - {}
+`,
+			expErr: "package_rules[1]: must not be empty",
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

@@ -15,6 +15,10 @@ type config struct {
 	// DigestPinnedImages contains container images that are digest-pinned in repository files,
 	// for which custom managers are generated so that Renovate keeps the digests bumped.
 	DigestPinnedImages []digestPinnedImage `yaml:"digest_pinned_images"`
+	// PackageRules are appended verbatim to the generated Renovate packageRules array.
+	// Keys are passed through to JSON unchanged, so any Renovate packageRules field is accepted.
+	// They are appended last, so they override the rules this tool generates.
+	PackageRules []map[string]any `yaml:"package_rules"`
 }
 
 // digestPinnedImage describes a container image referenced by digest (image@sha256:...)
@@ -40,6 +44,11 @@ func (c config) validate() error {
 		}
 		if len(img.FilePatterns) == 0 {
 			return fmt.Errorf("digest_pinned_images[%d]: file_patterns must not be empty", i)
+		}
+	}
+	for i, r := range c.PackageRules {
+		if len(r) == 0 {
+			return fmt.Errorf("package_rules[%d]: must not be empty", i)
 		}
 	}
 	return nil
