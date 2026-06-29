@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,8 +17,11 @@ type config struct {
 	// for which custom managers are generated so that Renovate keeps the digests bumped.
 	DigestPinnedImages []digestPinnedImage `yaml:"digest_pinned_images"`
 	// PackageRules are appended verbatim to the generated Renovate packageRules array.
-	// Keys are passed through to JSON unchanged, so any Renovate packageRules field is accepted.
-	// They are appended last, so they override the rules this tool generates.
+	// Keys are passed through to JSON unchanged, so any Renovate packageRules field is accepted;
+	// field names are not validated here. They are appended after the rules this tool generates,
+	// and Renovate merges matching rules with later entries winning, so a custom
+	// rule's fields take precedence over a generated rule only where both match the same package;
+	// otherwise the custom rule is simply added.
 	PackageRules []map[string]any `yaml:"package_rules"`
 }
 
@@ -49,6 +53,13 @@ func (c config) validate() error {
 	for i, r := range c.PackageRules {
 		if len(r) == 0 {
 			return fmt.Errorf("package_rules[%d]: must not be empty", i)
+		}
+
+		// The rule is emitted verbatim into renovate.json, so it must be JSON-serializable.
+		// YAML mappings with non-string keys decode to map[interface{}]interface{}, which
+		// encoding/json cannot marshal; nip it in the bud.
+		if _, err := json.Marshal(r); err != nil {
+			return fmt.Errorf("package_rules[%d]: not serializable to JSON (make sure all object keys are strings): %w", i, err)
 		}
 	}
 	return nil

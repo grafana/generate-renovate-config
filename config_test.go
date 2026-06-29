@@ -123,6 +123,38 @@ digest_pinned_images:
 `,
 			expErr: "package_rules[1]: must not be empty",
 		},
+		"package rule with nested object is preserved": {
+			content: `package_rules:
+  - description: Nested example
+    matchPackageNames: ['foo/bar']
+    nested:
+      innerKey: innerValue
+      anotherKey: anotherValue
+`,
+			expCfg: config{
+				PackageRules: []map[string]any{
+					{
+						"description":       "Nested example",
+						"matchPackageNames": []any{"foo/bar"},
+						"nested": map[string]any{
+							"innerKey":   "innerValue",
+							"anotherKey": "anotherValue",
+						},
+					},
+				},
+			},
+		},
+		"non-serializable package rule fails validation": {
+			// A nested mapping with non-string keys decodes to map[any]any,
+			// which encoding/json cannot marshal. Validation must reject it up front.
+			content: `package_rules:
+  - matchPackageNames: ['foo/bar']
+    weirdField:
+      1: one
+      2: two
+`,
+			expErr: "package_rules[0]: not serializable to JSON",
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

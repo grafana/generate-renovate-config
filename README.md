@@ -18,8 +18,14 @@ digest_pinned_images:
   - image: us-docker.pkg.dev/grafanalabs-global/docker-deployment-tools-prod/cortex-rt
     file_patterns: ['.github/workflows/ci.yml']
 # Custom package rules appended verbatim to the generated Renovate packageRules array.
-# Keys are passed through to JSON unchanged, so any Renovate packageRules field is
-# accepted. They are appended last, so they override the rules this tool generates.
+# Keys are passed through to JSON unchanged, so any Renovate packageRules field is accepted.
+# Rules are appended after the ones this tool generates, and Renovate merges matching rules
+# with later entries winning, so a custom rule's fields take precedence over a generated rule
+# only where both match the same package; otherwise the custom rule is simply added.
+# Field names are NOT validated by this tool: a typo (e.g. matchPackageName instead of
+# matchPackageNames) is emitted as-is and silently ignored by Renovate. The generated
+# renovate.json references the Renovate $schema, so validate the result with Renovate's config
+# validator or a --dry-run (see "Testing Generated Config" in AGENTS.md).
 package_rules:
   - description: Slow down major updates for foo/bar
     matchPackageNames: ['foo/bar']
