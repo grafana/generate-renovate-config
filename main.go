@@ -26,7 +26,7 @@ type renovateConfiguration struct {
 	BaseBranches           []string            `json:"baseBranches"`
 	PostUpdateOptions      []string            `json:"postUpdateOptions"`
 	BranchPrefix           string              `json:"branchPrefix"`
-	PackageRules           []packageRules      `json:"packageRules"`
+	PackageRules           []any               `json:"packageRules"`
 	CustomManagers         []customManager     `json:"customManagers,omitempty"`
 	VulnerabilityAlerts    vulnerabilityAlerts `json:"vulnerabilityAlerts"`
 	OSVVulnerabilityAlerts bool                `json:"osvVulnerabilityAlerts"`
@@ -135,6 +135,7 @@ func main() {
 				autoMergePaths:        cmd.StringSlice("auto-merge-path"),
 				groupPaths:            cmd.StringSlice("group-path"),
 				digestPinnedImages:    cfg.DigestPinnedImages,
+				customPackageRules:    cfg.PackageRules,
 			})
 		},
 	}
@@ -455,6 +456,7 @@ type renderOpts struct {
 	autoMergePaths        []string
 	groupPaths            []string
 	digestPinnedImages    []digestPinnedImage
+	customPackageRules    []map[string]any
 }
 
 // digestPinManagers generates a custom manager per digest-pinned image, so that Renovate
@@ -479,32 +481,41 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 		return fmt.Errorf("failed to create %q: %w", gitHubDir, err)
 	}
 
+	cfg, err := buildRenovateConfig(mainBranch, branchProps, opts)
+	if err != nil {
+		return err
+	}
+
+	return writeJSON(cfg, filepath.Join(gitHubDir, "renovate.json"))
+}
+
+func buildRenovateConfig(mainBranch string, branchProps []branchProperties, opts renderOpts) (renovateConfiguration, error) {
 	var rlsBranches []string
 	for _, p := range branchProps[1:] {
 		rlsBranches = append(rlsBranches, p.name)
 	}
 
-	pkgRules := []packageRules{
-		{
+	pkgRules := []any{
+		packageRules{
 			Description:       "Disable non-security updates for release branches",
 			MatchBaseBranches: rlsBranches,
 			MatchPackageNames: []string{"*"},
 			Enabled:           false,
 		},
-		{
+		packageRules{
 			Description:       "Disable lock file maintenance for release branches",
 			MatchBaseBranches: rlsBranches,
 			MatchUpdateTypes:  []string{"lockFileMaintenance"},
 			Enabled:           false,
 		},
-		{
+		packageRules{
 			Description:       "Disable updating of replaced dependencies for default branch",
 			MatchBaseBranches: []string{mainBranch},
 			MatchPackageNames: branchProps[0].replaced,
 			Enabled:           false,
 		},
 		// Pin Go at the current version, since we want to upgrade it manually.
-		{
+		packageRules{
 			Description:       "Pin Go at the current version for the default branch",
 			MatchBaseBranches: []string{mainBranch},
 			MatchDatasources:  []string{"docker", "golang-version"},
@@ -517,7 +528,7 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 		// Renovate cannot compare those tags with its default versioning, so
 		// references to those actions are never auto-bumped without this rule.
 		// Canonical config: https://github.com/grafana/shared-workflows#custom-renovate-config
-		{
+		packageRules{
 			Description:            "Auto-bump grafana/shared-workflows actions (per-action semver tags)",
 			MatchBaseBranches:      []string{mainBranch},
 			MatchPackageNames:      []string{"grafana/shared-workflows"},
@@ -553,7 +564,7 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 		for _, spec := range opts.groupPaths {
 			ms := reGroupSpec.FindStringSubmatch(spec)
 			if len(ms) == 0 {
-				return fmt.Errorf("invalid group path spec: %q", spec)
+				return renovateConfiguration{}, fmt.Errorf("invalid group path spec: %q", spec)
 			}
 			paths := ms[1]
 			name := ms[2]
@@ -592,6 +603,9 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 			},
 		)
 	}
+	for _, r := range opts.customPackageRules {
+		pkgRules = append(pkgRules, r)
+	}
 	cfg := renovateConfiguration{
 		Schema:       "https://docs.renovatebot.com/renovate-schema.json",
 		Extends:      []string{"config:recommended", "helpers:pinGitHubActionDigests"},
@@ -627,8 +641,7 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 		cfg.PlatformAutoMerge = true
 	}
 
-	outputPath := filepath.Join(gitHubDir, "renovate.json")
-	return writeJSON(cfg, outputPath)
+	return cfg, nil
 }
 
 func writeJSON(cfg renovateConfiguration, outputPath string) (err error) {

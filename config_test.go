@@ -87,6 +87,74 @@ digest_pinned_images:
 `,
 			expErr: "digest_pinned_images[0]: file_patterns must not be empty",
 		},
+		"custom package rules": {
+			content: `package_rules:
+  - description: Slow down updates
+    matchPackageNames: ['foo/bar']
+    matchUpdateTypes: ['major']
+    enabled: false
+    minimumReleaseAge: '7 days'
+  - description: Group dev tools
+    matchPackageNames: ['golang.org/x/*']
+    groupName: dev-tools
+`,
+			expCfg: config{
+				PackageRules: []map[string]any{
+					{
+						"description":       "Slow down updates",
+						"matchPackageNames": []any{"foo/bar"},
+						"matchUpdateTypes":  []any{"major"},
+						"enabled":           false,
+						"minimumReleaseAge": "7 days",
+					},
+					{
+						"description":       "Group dev tools",
+						"matchPackageNames": []any{"golang.org/x/*"},
+						"groupName":         "dev-tools",
+					},
+				},
+			},
+		},
+		"empty package rule fails validation": {
+			content: `package_rules:
+  - description: ok rule
+    enabled: false
+  - {}
+`,
+			expErr: "package_rules[1]: must not be empty",
+		},
+		"package rule with nested object is preserved": {
+			content: `package_rules:
+  - description: Nested example
+    matchPackageNames: ['foo/bar']
+    nested:
+      innerKey: innerValue
+      anotherKey: anotherValue
+`,
+			expCfg: config{
+				PackageRules: []map[string]any{
+					{
+						"description":       "Nested example",
+						"matchPackageNames": []any{"foo/bar"},
+						"nested": map[string]any{
+							"innerKey":   "innerValue",
+							"anotherKey": "anotherValue",
+						},
+					},
+				},
+			},
+		},
+		"non-serializable package rule fails validation": {
+			// A nested mapping with non-string keys decodes to map[any]any,
+			// which encoding/json cannot marshal. Validation must reject it up front.
+			content: `package_rules:
+  - matchPackageNames: ['foo/bar']
+    weirdField:
+      1: one
+      2: two
+`,
+			expErr: "package_rules[0]: not serializable to JSON",
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
