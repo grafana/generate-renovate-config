@@ -60,13 +60,16 @@ type packageRules struct {
 	CommitMessageAction    string   `json:"commitMessageAction,omitempty"`
 	CommitMessageTopic     string   `json:"commitMessageTopic,omitempty"`
 	CommitMessageExtra     string   `json:"commitMessageExtra,omitempty"`
-	Enabled                bool     `json:"enabled"`
+	Enabled                *bool    `json:"enabled,omitempty"`
+	SeparateMajorMinor     *bool    `json:"separateMajorMinor,omitempty"`
 	AutoMerge              bool     `json:"automerge,omitempty"`
 }
 
 type vulnerabilityAlerts struct {
-	Enabled bool     `json:"enabled"`
-	Labels  []string `json:"labels"`
+	Enabled   bool     `json:"enabled"`
+	Labels    []string `json:"labels"`
+	GroupName string   `json:"groupName,omitempty"`
+	GroupSlug string   `json:"groupSlug,omitempty"`
 }
 
 func main() {
@@ -490,6 +493,9 @@ func renderConfig(repoPath, mainBranch string, branchProps []branchProperties, o
 }
 
 func buildRenovateConfig(mainBranch string, branchProps []branchProperties, opts renderOpts) (renovateConfiguration, error) {
+	enabled := true
+	disabled := false
+
 	var rlsBranches []string
 	for _, p := range branchProps[1:] {
 		rlsBranches = append(rlsBranches, p.name)
@@ -500,19 +506,19 @@ func buildRenovateConfig(mainBranch string, branchProps []branchProperties, opts
 			Description:       "Disable non-security updates for release branches",
 			MatchBaseBranches: rlsBranches,
 			MatchPackageNames: []string{"*"},
-			Enabled:           false,
+			Enabled:           &disabled,
 		},
 		packageRules{
 			Description:       "Disable lock file maintenance for release branches",
 			MatchBaseBranches: rlsBranches,
 			MatchUpdateTypes:  []string{"lockFileMaintenance"},
-			Enabled:           false,
+			Enabled:           &disabled,
 		},
 		packageRules{
 			Description:       "Disable updating of replaced dependencies for default branch",
 			MatchBaseBranches: []string{mainBranch},
 			MatchPackageNames: branchProps[0].replaced,
-			Enabled:           false,
+			Enabled:           &disabled,
 		},
 		// Pin Go at the current version, since we want to upgrade it manually.
 		packageRules{
@@ -521,7 +527,7 @@ func buildRenovateConfig(mainBranch string, branchProps []branchProperties, opts
 			MatchDatasources:  []string{"docker", "golang-version"},
 			MatchPackageNames: []string{"go", "golang"},
 			AllowedVersions:   branchProps[0].goVersion,
-			Enabled:           true,
+			Enabled:           &enabled,
 		},
 		// grafana/shared-workflows is a monorepo whose actions are tagged as
 		// `<action-name>/v<semver>` (e.g. `create-github-app-token/v0.2.2`).
@@ -538,7 +544,14 @@ func buildRenovateConfig(mainBranch string, branchProps []branchProperties, opts
 			CommitMessageAction:    "update",
 			CommitMessageTopic:     `{{depName}}/{{ lookup (split newVersion "/") 0 }} action`,
 			CommitMessageExtra:     `to {{ lookup (split newVersion "/") 1 }}`,
-			Enabled:                true,
+			Enabled:                &enabled,
+		},
+		packageRules{
+			Description:        "Group golang.org/x module updates",
+			MatchDatasources:   []string{"go"},
+			MatchPackageNames:  []string{"golang.org/x/**"},
+			GroupName:          "golang.org/x",
+			SeparateMajorMinor: &disabled,
 		},
 	}
 
@@ -547,7 +560,7 @@ func buildRenovateConfig(mainBranch string, branchProps []branchProperties, opts
 			Description:       opts.disablePackagesReason,
 			MatchBaseBranches: []string{mainBranch},
 			MatchPackageNames: opts.disablePackages,
-			Enabled:           false,
+			Enabled:           &disabled,
 		})
 	}
 	if len(opts.autoMergePaths) > 0 {
@@ -556,7 +569,7 @@ func buildRenovateConfig(mainBranch string, branchProps []branchProperties, opts
 			MatchBaseBranches: []string{mainBranch},
 			MatchPaths:        opts.autoMergePaths,
 			AutoMerge:         true,
-			Enabled:           true,
+			Enabled:           &enabled,
 		})
 	}
 	if len(opts.groupPaths) > 0 {
@@ -576,7 +589,7 @@ func buildRenovateConfig(mainBranch string, branchProps []branchProperties, opts
 				GroupName:         name,
 				MatchBaseBranches: []string{mainBranch},
 				MatchPaths:        paths,
-				Enabled:           true,
+				Enabled:           &enabled,
 			})
 		}
 	}
@@ -590,7 +603,7 @@ func buildRenovateConfig(mainBranch string, branchProps []branchProperties, opts
 				Description:       fmt.Sprintf("Disable updating of replaced dependencies for branch %s", p.name),
 				MatchBaseBranches: []string{p.name},
 				MatchPackageNames: p.replaced,
-				Enabled:           false,
+				Enabled:           &disabled,
 			},
 			// Pin Go at the current major.minor version, since we only want to upgrade the patch version (for security fixes).
 			packageRules{
@@ -599,7 +612,7 @@ func buildRenovateConfig(mainBranch string, branchProps []branchProperties, opts
 				MatchDatasources:  []string{"docker", "golang-version"},
 				MatchPackageNames: []string{"go", "golang"},
 				AllowedVersions:   fmt.Sprintf("<=%s.%s", major, minor),
-				Enabled:           true,
+				Enabled:           &enabled,
 			},
 		)
 	}
@@ -626,8 +639,10 @@ func buildRenovateConfig(mainBranch string, branchProps []branchProperties, opts
 			},
 		}, digestPinManagers(opts.digestPinnedImages)...),
 		VulnerabilityAlerts: vulnerabilityAlerts{
-			Enabled: true,
-			Labels:  []string{"security-update"},
+			Enabled:   true,
+			Labels:    []string{"security-update"},
+			GroupName: "{{#if (and (equals datasource 'go') (containsString depName 'golang.org/x/'))}}golang.org/x security updates{{else}}dependency {{{depName}}}{{/if}}",
+			GroupSlug: "{{#if (and (equals datasource 'go') (containsString depName 'golang.org/x/'))}}golang-org-x-security{{else}}{{{datasource}}}-{{{depNameSanitized}}}-vulnerability{{/if}}",
 		},
 		OSVVulnerabilityAlerts: true,
 		DependencyDashboard:    false,

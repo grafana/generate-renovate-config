@@ -2,6 +2,9 @@
 
 Go tool for generating [Renovate](https://renovatebot.com/) configuration file for a Go repository.
 Renovate is configured not to update dependencies pinned through `replace` directives in the go.mod file.
+Generated configurations group all `golang.org/x/**` Go module updates together across update types,
+including major updates. Routine dependency updates remain disabled on release branches, while
+vulnerability fixes use a distinct `golang.org/x` security group on every configured base branch.
 
 ## Configuration file
 
