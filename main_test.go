@@ -7,6 +7,73 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBuildRenovateConfig_GroupsGolangXUpdates(t *testing.T) {
+	branchProps := []branchProperties{
+		{name: "", replaced: []string{"golang.org/x/exp"}, goVersion: "1.22.4"},
+		{name: "gem-release-1.0", replaced: nil, goVersion: "1.21.12"},
+	}
+
+	cfg, err := buildRenovateConfig("master", branchProps, renderOpts{})
+	require.NoError(t, err)
+
+	var groupRule packageRules
+	found := false
+	for _, rawRule := range cfg.PackageRules {
+		rule, ok := rawRule.(packageRules)
+		if ok && rule.Description == "Group golang.org/x module updates" {
+			groupRule = rule
+			found = true
+			break
+		}
+	}
+	require.True(t, found)
+	require.Equal(t, []string{"go"}, groupRule.MatchDatasources)
+	require.Equal(t, []string{"golang.org/x/**"}, groupRule.MatchPackageNames)
+	require.Equal(t, "golang.org/x", groupRule.GroupName)
+	require.Empty(t, groupRule.MatchBaseBranches)
+	require.Nil(t, groupRule.Enabled)
+	require.NotNil(t, groupRule.SeparateMajorMinor)
+	require.False(t, *groupRule.SeparateMajorMinor)
+
+	require.True(t, cfg.VulnerabilityAlerts.Enabled)
+	require.Equal(t, []string{"security-update"}, cfg.VulnerabilityAlerts.Labels)
+	require.Equal(t, "{{#if (and (equals datasource 'go') (containsString depName 'golang.org/x/'))}}golang.org/x security updates{{else}}dependency {{{depName}}}{{/if}}", cfg.VulnerabilityAlerts.GroupName)
+	require.Equal(t, "{{#if (and (equals datasource 'go') (containsString depName 'golang.org/x/'))}}golang-org-x-security{{else}}{{{datasource}}}-{{{depNameSanitized}}}-vulnerability{{/if}}", cfg.VulnerabilityAlerts.GroupSlug)
+	require.True(t, cfg.OSVVulnerabilityAlerts)
+	require.Equal(t, []string{"master", "gem-release-1.0"}, cfg.BaseBranches)
+}
+
+func TestBuildRenovateConfig_PackageRuleEnabledSerialization(t *testing.T) {
+	branchProps := []branchProperties{
+		{name: "", replaced: []string{"example.com/replaced"}, goVersion: "1.22.4"},
+	}
+
+	cfg, err := buildRenovateConfig("master", branchProps, renderOpts{})
+	require.NoError(t, err)
+
+	out, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	var parsed struct {
+		PackageRules []map[string]any `json:"packageRules"`
+	}
+	require.NoError(t, json.Unmarshal(out, &parsed))
+
+	rulesByDescription := make(map[string]map[string]any, len(parsed.PackageRules))
+	for _, rule := range parsed.PackageRules {
+		description, ok := rule["description"].(string)
+		require.True(t, ok)
+		rulesByDescription[description] = rule
+	}
+
+	groupRule := rulesByDescription["Group golang.org/x module updates"]
+	require.NotNil(t, groupRule)
+	require.NotContains(t, groupRule, "enabled")
+	require.Equal(t, false, groupRule["separateMajorMinor"])
+	require.Equal(t, false, rulesByDescription["Disable updating of replaced dependencies for default branch"]["enabled"])
+	require.Equal(t, true, rulesByDescription["Pin Go at the current version for the default branch"]["enabled"])
+}
+
 func TestBuildRenovateConfig_CustomPackageRules(t *testing.T) {
 	branchProps := []branchProperties{
 		{name: "", replaced: []string{"example.com/replaced"}, goVersion: "1.22.4"},
