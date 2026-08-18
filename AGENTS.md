@@ -143,3 +143,4 @@ The project uses golangci-lint with extensive linters enabled (see .golangci.yml
 - Key linters: depguard, errorlint, gocritic, revive, sloglint, testifylint
 - Banned packages: io/ioutil (use os/io), github.com/pkg/errors (use errors/fmt), golang.org/x/exp/slices (use slices)
 - Local import prefix: github.com/grafana/generate-renovate-config
+- Security issues should be reported via [Grafana's security issue reporting page](https://grafana.com/legal/report-a-security-issue/) and not directly in this repository.
